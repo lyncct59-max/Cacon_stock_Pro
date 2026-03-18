@@ -1,598 +1,645 @@
-// app.js
-const App = {
-  state: {
-    currentTradeId: null,
-    currentPatternId: null,
-    tradesUnsub: null,
-    marketUnsub: null,
-    patternsUnsub: null,
-    approvalsUnsub: null,
-    activeAuthTab: 'login'
-  },
+window.addEventListener('load', () => {
+  lucide.createIcons();
+  setupLanding();
+  bindUI();
+  bindAuthState();
+  seedDefaultsIfMissing();
+});
 
-  init() {
-    this.bindUI();
-    this.initLanding();
-    this.initAuthState();
-    this.renderEmptyPatternState();
-    this.renderEmptyJournal();
-    lucide.createIcons();
-  },
+const state = {
+  journal: [],
+  watchlist: [],
+  patterns: [],
+  pending: [],
+  activeTab: 'dashboard'
+};
 
-  bindUI() {
-    document.querySelectorAll('[data-auth-tab]').forEach(btn => {
-      btn.addEventListener('click', () => this.switchAuthTab(btn.dataset.authTab));
-    });
+function bindUI() {
+  document.getElementById('open-auth-btn').addEventListener('click', openAuthModal);
+  document.getElementById('close-auth-btn').addEventListener('click', closeAuthModal);
+  document.getElementById('login-btn').addEventListener('click', handleLogin);
+  document.getElementById('forgot-btn').addEventListener('click', handleForgotPassword);
+  document.getElementById('send-request-btn').addEventListener('click', submitRegistrationRequest);
+  document.getElementById('create-account-btn').addEventListener('click', createApprovedAccount);
+  document.getElementById('logout-btn').addEventListener('click', () => auth.signOut());
+  document.getElementById('save-journal-btn').addEventListener('click', saveJournal);
+  document.getElementById('clear-journal-form-btn').addEventListener('click', clearJournalForm);
+  document.getElementById('journal-filter-result').addEventListener('change', renderJournalTable);
+  document.getElementById('journal-search').addEventListener('input', renderJournalTable);
+  document.getElementById('save-watchlist-btn').addEventListener('click', saveWatchlist);
+  document.getElementById('clear-watchlist-form-btn').addEventListener('click', clearWatchlistForm);
+  document.getElementById('save-pattern-btn').addEventListener('click', savePattern);
+  document.getElementById('clear-pattern-form-btn').addEventListener('click', clearPatternForm);
+  document.getElementById('refresh-pending-btn').addEventListener('click', loadPendingRegistrations);
 
-    document.querySelectorAll('.password-toggle').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const target = document.querySelector(btn.dataset.toggle);
-        if (!target) return;
-        target.type = target.type === 'password' ? 'text' : 'password';
-        const icon = btn.querySelector('i');
-        if (icon) icon.setAttribute('data-lucide', target.type === 'password' ? 'eye' : 'eye-off');
-        lucide.createIcons();
-      });
-    });
+  document.querySelectorAll('[data-auth-tab]').forEach(btn => {
+    btn.addEventListener('click', () => switchAuthTab(btn.dataset.authTab));
+  });
+  document.querySelectorAll('.toggle-pass').forEach(btn => {
+    btn.addEventListener('click', () => togglePassword(btn.dataset.target, btn));
+  });
+  document.querySelectorAll('.nav-btn').forEach(btn => {
+    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+  });
+  document.querySelectorAll('[data-tab-jump]').forEach(btn => {
+    btn.addEventListener('click', () => switchTab(btn.dataset.tabJump));
+  });
+}
 
-    document.getElementById('open-auth-btn').addEventListener('click', () => this.openAuthModal());
-    document.getElementById('skip-preview-btn').addEventListener('click', () => this.hideLanding());
-    document.getElementById('close-auth-btn').addEventListener('click', () => this.closeAuthModal());
-    document.getElementById('filter-result').addEventListener('change', () => this.renderJournalRows(this.cachedTrades || []));
-    document.getElementById('trade-image-file').addEventListener('change', (e) => this.handlePreview(e, 'trade-image-preview'));
-    document.getElementById('pattern-image-file').addEventListener('change', (e) => this.handlePreview(e, 'pattern-image-preview'));
-  },
-
-  initLanding() {
-    const screen = document.getElementById('landing-screen');
-    const canvas = document.getElementById('network-canvas');
-    if (!screen || !canvas) return;
-
-    const ctx = canvas.getContext('2d');
-    const pointer = { x: null, y: null };
-    let particles = [];
-    const colors = ['#4285f4', '#34a853', '#fbbc05', '#ea4335'];
-
-    const resize = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-      particles = Array.from({ length: window.innerWidth < 768 ? 52 : 92 }, () => ({
-        x: Math.random() * canvas.width,
-        y: Math.random() * canvas.height,
-        vx: (Math.random() - 0.5) * 0.8,
-        vy: (Math.random() - 0.5) * 0.8,
-        r: Math.random() * 2.2 + 1.4,
-        c: colors[Math.floor(Math.random() * colors.length)]
-      }));
-    };
-
-    const draw = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      particles.forEach((p, i) => {
-        p.x += p.vx;
-        p.y += p.vy;
-        if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
-        if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
-
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-        ctx.fillStyle = p.c;
-        ctx.fill();
-
-        for (let j = i + 1; j < particles.length; j++) {
-          const q = particles[j];
-          const dx = p.x - q.x;
-          const dy = p.y - q.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < 130) {
-            ctx.beginPath();
-            ctx.strokeStyle = `rgba(148, 163, 184, ${0.18 - dist / 900})`;
-            ctx.lineWidth = 1;
-            ctx.moveTo(p.x, p.y);
-            ctx.lineTo(q.x, q.y);
-            ctx.stroke();
-          }
-        }
-
-        if (pointer.x !== null) {
-          const dx = p.x - pointer.x;
-          const dy = p.y - pointer.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < 170) {
-            ctx.beginPath();
-            ctx.strokeStyle = `rgba(17, 24, 39, ${0.28 - dist / 800})`;
-            ctx.moveTo(p.x, p.y);
-            ctx.lineTo(pointer.x, pointer.y);
-            ctx.stroke();
-          }
-        }
-      });
-      requestAnimationFrame(draw);
-    };
-
-    window.addEventListener('mousemove', (e) => {
-      pointer.x = e.clientX;
-      pointer.y = e.clientY;
-    });
-    window.addEventListener('mouseleave', () => { pointer.x = null; pointer.y = null; });
-    window.addEventListener('resize', resize);
-    resize();
-    draw();
-  },
-
-  hideLanding() {
-    document.getElementById('landing-screen')?.classList.add('hidden');
-  },
-
-  openAuthModal() {
-    this.hideLanding();
-    document.getElementById('login-modal').classList.remove('hidden');
-  },
-
-  closeAuthModal() {
-    if (!currentUser) return;
-    document.getElementById('login-modal').classList.add('hidden');
-  },
-
-  switchAuthTab(tab) {
-    this.state.activeAuthTab = tab;
-    document.querySelectorAll('[data-auth-tab]').forEach(btn => btn.classList.toggle('active', btn.dataset.authTab === tab));
-    document.querySelectorAll('.auth-panel').forEach(panel => panel.classList.add('hidden'));
-    document.getElementById(`auth-panel-${tab}`).classList.remove('hidden');
-    const messages = {
-      login: 'Đăng nhập chỉ cho email đã được admin phê duyệt.',
-      request: 'Gửi yêu cầu để admin xét duyệt email, tên và mật khẩu đề xuất.',
-      create: 'Sau khi được duyệt, bạn mới có thể tạo tài khoản Firebase.'
-    };
-    this.setAuthMessage(messages[tab]);
-  },
-
-  setAuthMessage(message, isError = false) {
-    const box = document.getElementById('auth-message');
-    box.textContent = message;
-    box.classList.toggle('error', isError);
-  },
-
-  initAuthState() {
-    auth.onAuthStateChanged(async (user) => {
-      if (!user) {
-        currentUser = null;
-        userRole = 'user';
-        document.body.classList.remove('is-admin');
-        document.getElementById('login-modal').classList.remove('hidden');
-        document.getElementById('user-name').textContent = 'Chưa đăng nhập';
-        document.getElementById('user-email').textContent = '—';
-        document.getElementById('user-role').textContent = 'user';
-        this.renderEmptyJournal();
-        return;
-      }
-
-      try {
-        const approved = await isEmailApproved(user.email);
-        if (!approved) {
-          await auth.signOut();
-          this.setAuthMessage('Email này chưa được admin phê duyệt.', true);
-          return;
-        }
-
-        currentUser = user;
-        await checkAdminRole(user);
-        await db.collection('users').doc(user.uid).set({
-          uid: user.uid,
-          email: user.email || '',
-          name: user.displayName || user.email?.split('@')[0] || 'User',
-          role: userRole,
-          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
-
-        document.getElementById('login-modal').classList.add('hidden');
-        this.hideLanding();
-        document.getElementById('user-name').textContent = user.displayName || user.email?.split('@')[0] || 'User';
-        document.getElementById('user-email').textContent = user.email || '—';
-        document.getElementById('user-role').textContent = userRole;
-        this.setAuthMessage('Đăng nhập thành công. Dữ liệu của bạn được tách riêng theo userId.');
-
-        this.subscribeJournal();
-        this.subscribePatterns();
-        this.subscribeMarket();
-        if (userRole === 'admin') this.loadApprovalRequests();
-      } catch (error) {
-        console.error(error);
-        this.setAuthMessage(error.message || 'Không thể khởi tạo phiên đăng nhập.', true);
-      }
-    });
-  },
-
-  async handleLogin() {
-    const email = document.getElementById('login-email').value.trim();
-    const password = document.getElementById('login-pass').value.trim();
-    try {
-      if (!email || !password) throw new Error('Vui lòng nhập email và mật khẩu.');
-      const approved = await isEmailApproved(email);
-      if (!approved) throw new Error('Email chưa được admin phê duyệt.');
-      await auth.signInWithEmailAndPassword(email, password);
-    } catch (error) {
-      this.setAuthMessage(error.message || 'Đăng nhập thất bại.', true);
-    }
-  },
-
-  async resetPassword() {
-    const email = document.getElementById('login-email').value.trim();
-    try {
-      if (!email) throw new Error('Vui lòng nhập email để lấy lại mật khẩu.');
-      await auth.sendPasswordResetEmail(email);
-      this.setAuthMessage('Đã gửi email đặt lại mật khẩu.');
-    } catch (error) {
-      this.setAuthMessage(error.message || 'Không gửi được email đặt lại mật khẩu.', true);
-    }
-  },
-
-  async submitApprovalRequest() {
-    const name = document.getElementById('request-name').value.trim();
-    const email = normalizeEmail(document.getElementById('request-email').value);
-    const password = document.getElementById('request-pass').value.trim();
-    try {
-      if (!name || !email || !password) throw new Error('Vui lòng nhập đầy đủ họ tên, email và mật khẩu.');
-      await db.collection(PENDING_REG_COLLECTION).doc(email).set({
-        name,
-        email,
-        password,
-        status: 'pending',
-        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-      }, { merge: true });
-      this.setAuthMessage('Đã gửi yêu cầu phê duyệt cho admin.');
-      this.switchAuthTab('login');
-    } catch (error) {
-      this.setAuthMessage(error.message || 'Không gửi được yêu cầu phê duyệt.', true);
-    }
-  },
-
-  async createApprovedAccount() {
-    const name = document.getElementById('create-name').value.trim();
-    const email = normalizeEmail(document.getElementById('create-email').value);
-    const password = document.getElementById('create-pass').value.trim();
-    try {
-      if (!name || !email || !password) throw new Error('Vui lòng nhập đủ họ tên, email, mật khẩu.');
-      const approvedDoc = await db.collection(APPROVED_EMAILS_COLLECTION).doc(email).get();
-      if (!approvedDoc.exists) throw new Error('Email này chưa được admin phê duyệt.');
-      const cred = await auth.createUserWithEmailAndPassword(email, password);
-      await cred.user.updateProfile({ displayName: name });
-      await db.collection('users').doc(cred.user.uid).set({
-        uid: cred.user.uid,
-        email,
-        name,
-        role: approvedDoc.data().role || 'user',
-        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-      }, { merge: true });
-      this.setAuthMessage('Tạo tài khoản thành công. Bạn có thể đăng nhập ngay.');
-      this.switchAuthTab('login');
-    } catch (error) {
-      this.setAuthMessage(error.message || 'Không tạo được tài khoản.', true);
-    }
-  },
-
-  async handleLogout() {
-    try {
-      await auth.signOut();
-      this.setAuthMessage('Đã đăng xuất.');
-    } catch (error) {
-      this.setAuthMessage(error.message || 'Không đăng xuất được.', true);
-    }
-  },
-
-  subscribeJournal() {
-    if (!currentUser) return;
-    if (this.state.tradesUnsub) this.state.tradesUnsub();
-    this.state.tradesUnsub = db.collection('journal')
-      .where('userId', '==', currentUser.uid)
-      .orderBy('date', 'desc')
-      .onSnapshot((snap) => {
-        this.cachedTrades = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        this.renderJournalRows(this.cachedTrades);
-        this.renderDashboardStats(this.cachedTrades);
-      }, (error) => {
-        console.error(error);
-        this.renderEmptyJournal('Lỗi tải nhật ký. Kiểm tra rules Firestore và index.');
-      });
-  },
-
-  renderJournalRows(rows) {
-    const filter = document.getElementById('filter-result').value;
-    const filtered = rows.filter((t) => {
-      if (filter === 'all') return true;
-      if (filter === 'open') return t.status === 'open';
-      if (filter === 'closed') return t.status === 'closed';
-      return t.result === filter;
-    });
-
-    const body = document.getElementById('journal-body');
-    if (!filtered.length) {
-      body.innerHTML = `<tr><td colspan="7" class="p-6 text-center text-slate-400">Chưa có lệnh phù hợp bộ lọc.</td></tr>`;
+function bindAuthState() {
+  auth.onAuthStateChanged(async (user) => {
+    hideAlert();
+    if (!user) {
+      currentUser = null;
+      userProfile = null;
+      userRole = 'user';
+      document.getElementById('app-shell').classList.add('hidden');
+      document.getElementById('landing-screen').classList.remove('hidden');
+      openAuthModal();
       return;
     }
 
-    body.innerHTML = filtered.map(t => `
-      <tr class="border-b border-white/5">
-        <td class="p-4 font-mono">${this.escapeHtml(t.date || '')}</td>
-        <td class="p-4 font-black text-white">${this.escapeHtml(t.ticker || '')}</td>
-        <td class="p-4">${this.escapeHtml(t.setup || '')}</td>
-        <td class="p-4"><span class="status-chip ${t.status === 'open' ? 'status-open' : 'status-closed'}">${t.status === 'open' ? 'Đang mở' : 'Đóng'}</span></td>
-        <td class="p-4"><span class="status-chip ${t.result === 'win' ? 'status-win' : t.result === 'loss' ? 'status-loss' : 'status-open'}">${t.result === 'win' ? 'Lãi' : t.result === 'loss' ? 'Lỗ' : 'Đang mở'}</span></td>
-        <td class="p-4 text-right font-mono ${Number(t.pnl || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}">${Number(t.pnl || 0).toLocaleString('vi-VN')}đ</td>
-        <td class="p-4 text-right">${t.imageUrl ? `<a href="${t.imageUrl}" target="_blank" class="text-emerald-400 underline">Xem ảnh</a>` : '<span class="text-slate-500">—</span>'}</td>
-      </tr>`).join('');
-  },
+    currentUser = user;
 
-  renderDashboardStats(rows) {
-    const closed = rows.filter(t => t.status === 'closed');
-    const totalPnl = closed.reduce((sum, item) => sum + Number(item.pnl || 0), 0);
-    document.getElementById('dash-trades').textContent = rows.length.toLocaleString('vi-VN');
-    document.getElementById('dash-pnl').textContent = `${totalPnl.toLocaleString('vi-VN')}đ`;
-  },
-
-  renderEmptyJournal(message = 'Chưa có dữ liệu nhật ký.') {
-    document.getElementById('journal-body').innerHTML = `<tr><td colspan="7" class="p-6 text-center text-slate-400">${message}</td></tr>`;
-    document.getElementById('dash-trades').textContent = '0';
-    document.getElementById('dash-pnl').textContent = '0đ';
-  },
-
-  openTradeModal(id = null) {
-    if (!currentUser) return this.openAuthModal();
-    this.state.currentTradeId = id;
-    const src = this.cachedTrades?.find(x => x.id === id) || {};
-    document.getElementById('trade-date').value = src.date || new Date().toISOString().slice(0, 10);
-    document.getElementById('trade-ticker').value = src.ticker || '';
-    document.getElementById('trade-setup').value = src.setup || '';
-    document.getElementById('trade-status').value = src.status || 'open';
-    document.getElementById('trade-result').value = src.result || 'open';
-    document.getElementById('trade-pnl').value = src.pnl ?? '';
-    document.getElementById('trade-note').value = src.note || '';
-    document.getElementById('trade-image-url').value = src.imageUrl || '';
-    document.getElementById('trade-image-preview').src = src.imageUrl || '';
-    document.getElementById('trade-image-file').value = '';
-    document.getElementById('trade-modal').classList.remove('hidden');
-    document.getElementById('trade-modal').classList.add('flex');
-  },
-
-  closeTradeModal() {
-    document.getElementById('trade-modal').classList.add('hidden');
-    document.getElementById('trade-modal').classList.remove('flex');
-  },
-
-  async saveTrade() {
-    if (!currentUser) return this.openAuthModal();
     try {
-      let imageUrl = document.getElementById('trade-image-url').value.trim();
-      const file = document.getElementById('trade-image-file').files?.[0];
-      if (file) imageUrl = await this.uploadFile(file, `users/${currentUser.uid}/journal`);
-
-      const payload = {
-        userId: currentUser.uid,
-        date: document.getElementById('trade-date').value,
-        ticker: document.getElementById('trade-ticker').value.trim().toUpperCase(),
-        setup: document.getElementById('trade-setup').value.trim(),
-        status: document.getElementById('trade-status').value,
-        result: document.getElementById('trade-result').value,
-        pnl: Number(document.getElementById('trade-pnl').value || 0),
-        note: document.getElementById('trade-note').value.trim(),
-        imageUrl,
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-      };
-
-      if (!payload.date || !payload.ticker) throw new Error('Ngày và mã là bắt buộc.');
-      if (this.state.currentTradeId) {
-        await db.collection('journal').doc(this.state.currentTradeId).set(payload, { merge: true });
-      } else {
-        payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
-        await db.collection('journal').add(payload);
-      }
-      this.closeTradeModal();
-    } catch (error) {
-      alert(error.message || 'Không lưu được lệnh.');
-    }
-  },
-
-  subscribePatterns() {
-    if (this.state.patternsUnsub) this.state.patternsUnsub();
-    this.state.patternsUnsub = db.collection('patterns').orderBy('name', 'asc').onSnapshot((snap) => {
-      const rows = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      this.cachedPatterns = rows;
-      this.renderPatterns(rows);
-    }, (error) => {
-      console.error(error);
-      this.renderEmptyPatternState('Không tải được mẫu hình.');
-    });
-  },
-
-  renderPatterns(rows) {
-    const grid = document.getElementById('pattern-grid');
-    if (!rows.length) return this.renderEmptyPatternState();
-    grid.innerHTML = rows.map(p => `
-      <article class="pattern-card">
-        <img src="${p.imageUrl || ''}" alt="${this.escapeHtml(p.name || 'pattern')}" onerror="this.style.display='none'" />
-        <div class="pattern-card-body space-y-4">
-          <div>
-            <h4 class="text-xl font-black text-white">${this.escapeHtml(p.name || '')}</h4>
-            <p class="text-sm text-slate-400 mt-2">${this.escapeHtml(p.strategy || '')}</p>
-          </div>
-          <p class="text-sm text-slate-300 leading-6">${this.escapeHtml(p.description || '')}</p>
-          <div class="pattern-list"><strong class="text-white">Điều kiện nền:</strong><br>${(p.conditions || []).map(x => '• ' + this.escapeHtml(x)).join('<br>') || '—'}</div>
-          <div class="pattern-list"><strong class="text-white">Kích hoạt:</strong><br>${(p.triggers || []).map(x => '• ' + this.escapeHtml(x)).join('<br>') || '—'}</div>
-          ${userRole === 'admin' ? `<div class="flex gap-3 flex-wrap"><button onclick="App.openPatternModal('${p.id}')" class="px-4 py-2 bg-emerald-600 rounded-lg text-[11px] font-black uppercase">Sửa</button><button onclick="App.deletePattern('${p.id}')" class="px-4 py-2 bg-rose-600 rounded-lg text-[11px] font-black uppercase">Xóa</button></div>` : '<div class="text-xs text-slate-500 uppercase">Chỉ admin được chỉnh sửa</div>'}
-        </div>
-      </article>`).join('');
-  },
-
-  renderEmptyPatternState(message = 'Chưa có mẫu hình nào.') {
-    document.getElementById('pattern-grid').innerHTML = `<div class="glass-panel p-8 text-center text-slate-400 col-span-full">${message}</div>`;
-  },
-
-  openPatternModal(id = null) {
-    if (userRole !== 'admin') return alert('Chỉ admin mới được thêm hoặc chỉnh sửa mẫu hình.');
-    this.state.currentPatternId = id;
-    const src = this.cachedPatterns?.find(x => x.id === id) || {};
-    document.getElementById('pattern-name').value = src.name || '';
-    document.getElementById('pattern-strategy').value = src.strategy || '';
-    document.getElementById('pattern-description').value = src.description || '';
-    document.getElementById('pattern-conditions').value = (src.conditions || []).join('\n');
-    document.getElementById('pattern-triggers').value = (src.triggers || []).join('\n');
-    document.getElementById('pattern-image-url').value = src.imageUrl || '';
-    document.getElementById('pattern-image-preview').src = src.imageUrl || '';
-    document.getElementById('pattern-image-file').value = '';
-    document.getElementById('pattern-modal').classList.remove('hidden');
-    document.getElementById('pattern-modal').classList.add('flex');
-  },
-
-  closePatternModal() {
-    document.getElementById('pattern-modal').classList.add('hidden');
-    document.getElementById('pattern-modal').classList.remove('flex');
-  },
-
-  async savePattern() {
-    if (userRole !== 'admin') return alert('Chỉ admin mới được lưu mẫu hình.');
-    try {
-      let imageUrl = document.getElementById('pattern-image-url').value.trim();
-      const file = document.getElementById('pattern-image-file').files?.[0];
-      if (file) imageUrl = await this.uploadFile(file, 'patterns');
-
-      const payload = {
-        name: document.getElementById('pattern-name').value.trim(),
-        strategy: document.getElementById('pattern-strategy').value.trim(),
-        description: document.getElementById('pattern-description').value.trim(),
-        conditions: document.getElementById('pattern-conditions').value.split('\n').map(x => x.trim()).filter(Boolean),
-        triggers: document.getElementById('pattern-triggers').value.split('\n').map(x => x.trim()).filter(Boolean),
-        imageUrl,
-        updatedBy: currentUser.email,
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-      };
-      if (!payload.name) throw new Error('Tên mẫu hình là bắt buộc.');
-      if (this.state.currentPatternId) {
-        await db.collection('patterns').doc(this.state.currentPatternId).set(payload, { merge: true });
-      } else {
-        payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
-        await db.collection('patterns').add(payload);
-      }
-      this.closePatternModal();
-    } catch (error) {
-      alert(error.message || 'Không lưu được mẫu hình.');
-    }
-  },
-
-  async deletePattern(id) {
-    if (userRole !== 'admin') return alert('Chỉ admin mới được xóa mẫu hình.');
-    if (!confirm('Xóa mẫu hình này?')) return;
-    await db.collection('patterns').doc(id).delete();
-  },
-
-  subscribeMarket() {
-    if (this.state.marketUnsub) this.state.marketUnsub();
-    this.state.marketUnsub = db.collection('settings').doc('market').onSnapshot((doc) => {
-      const data = doc.exists ? doc.data() : { distDays: 0 };
-      document.getElementById('market-dist-days').value = data.distDays ?? 0;
-      document.getElementById('market-dist-days').disabled = userRole !== 'admin';
-    });
-  },
-
-  async loadApprovalRequests() {
-    if (userRole !== 'admin') return;
-    if (this.state.approvalsUnsub) this.state.approvalsUnsub();
-    this.state.approvalsUnsub = db.collection(PENDING_REG_COLLECTION).orderBy('createdAt', 'desc').onSnapshot((snap) => {
-      const rows = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      const body = document.getElementById('approval-body');
-      if (!rows.length) {
-        body.innerHTML = `<tr><td colspan="5" class="p-5 text-center text-slate-400">Chưa có yêu cầu chờ duyệt.</td></tr>`;
+      const profileSnap = await db.collection('users').doc(user.uid).get();
+      if (!profileSnap.exists()) {
+        await auth.signOut();
+        showAlert('Tài khoản chưa có hồ sơ người dùng.', 'error');
         return;
       }
-      body.innerHTML = rows.map(item => `
-        <tr class="border-b border-white/5">
-          <td class="p-4 text-white font-semibold">${this.escapeHtml(item.name || '')}</td>
-          <td class="p-4">${this.escapeHtml(item.email || '')}</td>
-          <td class="p-4 font-mono">${this.escapeHtml(item.password || '')}</td>
-          <td class="p-4"><span class="status-chip ${item.status === 'approved' ? 'status-win' : item.status === 'rejected' ? 'status-loss' : 'status-open'}">${item.status || 'pending'}</span></td>
-          <td class="p-4 text-right">
-            <div class="flex justify-end gap-2">
-              <button onclick="App.approveRequest('${item.id}')" class="px-3 py-2 bg-emerald-600 rounded-lg text-[10px] font-black uppercase">Duyệt</button>
-              <button onclick="App.rejectRequest('${item.id}')" class="px-3 py-2 bg-rose-600 rounded-lg text-[10px] font-black uppercase">Từ chối</button>
-            </div>
-          </td>
-        </tr>`).join('');
-    });
-  },
 
-  async approveRequest(id) {
-    if (userRole !== 'admin') return;
-    const doc = await db.collection(PENDING_REG_COLLECTION).doc(id).get();
-    if (!doc.exists) return;
-    const data = doc.data();
-    await db.collection(APPROVED_EMAILS_COLLECTION).doc(id).set({
-      email: data.email,
-      name: data.name,
-      role: 'user',
-      approvedBy: currentUser.email,
-      approvedAt: firebase.firestore.FieldValue.serverTimestamp()
-    }, { merge: true });
-    await db.collection(PENDING_REG_COLLECTION).doc(id).set({
-      status: 'approved',
-      approvedBy: currentUser.email,
-      approvedAt: firebase.firestore.FieldValue.serverTimestamp()
-    }, { merge: true });
-  },
+      userProfile = profileSnap.data();
+      userRole = userProfile.role || 'user';
 
-  async rejectRequest(id) {
-    if (userRole !== 'admin') return;
-    await db.collection(PENDING_REG_COLLECTION).doc(id).set({
-      status: 'rejected',
-      rejectedBy: currentUser.email,
-      rejectedAt: firebase.firestore.FieldValue.serverTimestamp()
-    }, { merge: true });
-  },
+      if (userProfile.status && userProfile.status !== 'active') {
+        await auth.signOut();
+        showAlert('Tài khoản chưa được kích hoạt.', 'error');
+        return;
+      }
 
-  async uploadFile(file, folder) {
-    const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-    const ref = storage.ref(`${folder}/${safeName}`);
-    await ref.put(file);
-    return ref.getDownloadURL();
-  },
+      document.body.classList.toggle('is-admin', userRole === 'admin');
+      document.querySelectorAll('.admin-only').forEach(el => el.classList.toggle('hidden', userRole !== 'admin'));
+      updateCurrentUserUI();
+      closeAuthModal();
+      document.getElementById('landing-screen').classList.add('hidden');
+      document.getElementById('app-shell').classList.remove('hidden');
+      switchTab(state.activeTab || 'dashboard');
+      subscribeUserData();
+      if (userRole === 'admin') loadPendingRegistrations();
+    } catch (error) {
+      console.error(error);
+      showAlert(error.message || 'Không thể tải quyền người dùng.', 'error');
+    }
+  });
+}
 
-  handlePreview(event, targetId) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      document.getElementById(targetId).src = reader.result;
-    };
-    reader.readAsDataURL(file);
-  },
+function openAuthModal() {
+  document.getElementById('auth-modal').classList.remove('hidden');
+}
+function closeAuthModal() {
+  if (!currentUser) return;
+  document.getElementById('auth-modal').classList.add('hidden');
+}
+function switchAuthTab(tab) {
+  document.querySelectorAll('[data-auth-tab]').forEach(btn => btn.classList.toggle('active', btn.dataset.authTab === tab));
+  document.querySelectorAll('[data-auth-panel]').forEach(panel => panel.classList.toggle('hidden', panel.dataset.authPanel !== tab));
+  hideAlert();
+}
+function showAlert(message, type = 'error') {
+  const el = document.getElementById('auth-alert');
+  el.textContent = message;
+  el.className = `auth-alert ${type}`;
+  el.classList.remove('hidden');
+}
+function hideAlert() {
+  const el = document.getElementById('auth-alert');
+  el.className = 'auth-alert hidden';
+  el.textContent = '';
+}
+function togglePassword(targetId, btn) {
+  const input = document.getElementById(targetId);
+  if (!input) return;
+  input.type = input.type === 'password' ? 'text' : 'password';
+  const icon = btn.querySelector('i');
+  if (icon) icon.setAttribute('data-lucide', input.type === 'password' ? 'eye' : 'eye-off');
+  lucide.createIcons();
+}
 
-  escapeHtml(value) {
-    return String(value || '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
+async function handleLogin() {
+  const email = getValue('login-email').toLowerCase();
+  const password = getValue('login-pass');
+  if (!email || !password) return showAlert('Vui lòng nhập email và mật khẩu.', 'error');
+
+  try {
+    const approvedSnap = await db.collection('approved_emails').doc(email).get();
+    if (!approvedSnap.exists() || approvedSnap.data().approved !== true) {
+      return showAlert('Email chưa được admin phê duyệt.', 'error');
+    }
+
+    await auth.signInWithEmailAndPassword(email, password);
+  } catch (error) {
+    console.error(error);
+    showAlert(mapAuthError(error), 'error');
   }
+}
+
+async function handleForgotPassword() {
+  const email = getValue('login-email').toLowerCase();
+  if (!email) return showAlert('Nhập email trước khi gửi yêu cầu đặt lại mật khẩu.', 'error');
+  try {
+    await auth.sendPasswordResetEmail(email);
+    showAlert('Đã gửi email đặt lại mật khẩu.', 'success');
+  } catch (error) {
+    showAlert(mapAuthError(error), 'error');
+  }
+}
+
+async function submitRegistrationRequest() {
+  const name = getValue('request-name');
+  const email = getValue('request-email').toLowerCase();
+  const password = getValue('request-pass');
+  if (!name || !email || !password) return showAlert('Vui lòng nhập đủ họ tên, email và mật khẩu đề xuất.', 'error');
+
+  try {
+    await db.collection('pending_registrations').doc(email).set({
+      name,
+      email,
+      password,
+      status: 'pending',
+      createdAt: Date.now()
+    }, { merge: true });
+    showAlert('Đã gửi yêu cầu. Chờ admin phê duyệt.', 'success');
+  } catch (error) {
+    console.error(error);
+    showAlert('Không gửi được yêu cầu phê duyệt.', 'error');
+  }
+}
+
+async function createApprovedAccount() {
+  const name = getValue('create-name');
+  const email = getValue('create-email').toLowerCase();
+  const password = getValue('create-pass');
+  if (!name || !email || !password) return showAlert('Vui lòng nhập đủ thông tin.', 'error');
+
+  try {
+    const approvedSnap = await db.collection('approved_emails').doc(email).get();
+    if (!approvedSnap.exists() || approvedSnap.data().approved !== true) {
+      return showAlert('Email chưa được admin phê duyệt.', 'error');
+    }
+
+    const cred = await auth.createUserWithEmailAndPassword(email, password);
+    await db.collection('users').doc(cred.user.uid).set({
+      uid: cred.user.uid,
+      email,
+      name,
+      role: approvedSnap.data().role || 'user',
+      status: 'active',
+      createdAt: Date.now(),
+      theme: 'dark'
+    }, { merge: true });
+
+    const pendingSnap = await db.collection('pending_registrations').doc(email).get();
+    if (pendingSnap.exists()) {
+      await db.collection('pending_registrations').doc(email).set({ status: 'created', createdUserId: cred.user.uid, updatedAt: Date.now() }, { merge: true });
+    }
+
+    showAlert('Tạo tài khoản thành công. Đang đăng nhập...', 'success');
+  } catch (error) {
+    console.error(error);
+    showAlert(mapAuthError(error), 'error');
+  }
+}
+
+function updateCurrentUserUI() {
+  document.getElementById('current-user-name').textContent = userProfile?.name || currentUser?.email || '-';
+  document.getElementById('current-user-meta').textContent = `${currentUser?.email || '-'} • ${userRole}`;
+}
+
+function switchTab(tab) {
+  state.activeTab = tab;
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.toggle('hidden', el.id !== `tab-${tab}`));
+  document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tab));
+}
+
+function subscribeUserData() {
+  if (!currentUser) return;
+
+  db.collection('journal').where('userId', '==', currentUser.uid).orderBy('date', 'desc')
+    .onSnapshot((snap) => {
+      state.journal = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      renderJournalTable();
+      renderDashboard();
+    });
+
+  db.collection('watchlist').where('userId', '==', currentUser.uid).orderBy('ticker', 'asc')
+    .onSnapshot((snap) => {
+      state.watchlist = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      renderWatchlistTable();
+      renderDashboard();
+    });
+
+  db.collection('patterns').orderBy('name', 'asc')
+    .onSnapshot((snap) => {
+      state.patterns = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      renderPatterns();
+    });
+}
+
+function renderDashboard() {
+  const totalPnl = state.journal.reduce((sum, x) => sum + Number(x.pnl || 0), 0);
+  const openTrades = state.journal.filter(x => x.status === 'open').length;
+  document.getElementById('stat-total-trades').textContent = String(state.journal.length);
+  document.getElementById('stat-open-trades').textContent = String(openTrades);
+  document.getElementById('stat-total-pnl').textContent = formatCurrency(totalPnl);
+  document.getElementById('stat-balance').textContent = formatCurrency(totalPnl);
+
+  const recentBox = document.getElementById('dashboard-recent-journal');
+  if (!state.journal.length) {
+    recentBox.innerHTML = '<div class="empty-state">Chưa có dữ liệu nhật ký.</div>';
+  } else {
+    recentBox.innerHTML = state.journal.slice(0, 5).map(item => `
+      <div class="flex items-center justify-between gap-3 border-b border-white/5 pb-3">
+        <div>
+          <div class="font-semibold text-white">${escapeHtml(item.ticker || '-')} • ${escapeHtml(item.setup || '-')}</div>
+          <div class="text-xs text-slate-400">${escapeHtml(item.date || '')} • ${item.status === 'open' ? 'Đang mở' : 'Đóng'}</div>
+        </div>
+        <div class="${Number(item.pnl || 0) >= 0 ? 'profit-text' : 'loss-text'}">${formatCurrency(Number(item.pnl || 0))}</div>
+      </div>
+    `).join('');
+  }
+
+  const watchBox = document.getElementById('dashboard-watchlist');
+  if (!state.watchlist.length) {
+    watchBox.innerHTML = '<div class="empty-state">Chưa có watchlist.</div>';
+  } else {
+    watchBox.innerHTML = state.watchlist.slice(0, 5).map(item => `
+      <div class="flex items-center justify-between gap-3 border-b border-white/5 pb-3">
+        <div>
+          <div class="font-semibold text-white">${escapeHtml(item.ticker || '-')}</div>
+          <div class="text-xs text-slate-400">${escapeHtml(item.pattern || '-')} • ${escapeHtml(item.status || '-')}</div>
+        </div>
+        <div class="text-sm text-emerald-300">${escapeHtml(item.buyZone || '-')}</div>
+      </div>
+    `).join('');
+  }
+}
+
+function renderJournalTable() {
+  const body = document.getElementById('journal-body');
+  const queryText = getValue('journal-search').toLowerCase();
+  const resultFilter = getValue('journal-filter-result');
+
+  let rows = [...state.journal];
+  if (queryText) rows = rows.filter(x => `${x.ticker || ''} ${x.setup || ''}`.toLowerCase().includes(queryText));
+  if (resultFilter === 'open') rows = rows.filter(x => x.status === 'open');
+  if (resultFilter === 'closed') rows = rows.filter(x => x.status === 'closed');
+  if (resultFilter === 'profit') rows = rows.filter(x => Number(x.pnl || 0) > 0);
+  if (resultFilter === 'loss') rows = rows.filter(x => Number(x.pnl || 0) < 0);
+
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="6" class="empty-state">Không có dữ liệu phù hợp.</td></tr>';
+    return;
+  }
+
+  body.innerHTML = rows.map(item => {
+    const pnl = Number(item.pnl || 0);
+    const statusText = item.status === 'open' ? 'Đang mở' : 'Đóng';
+    return `
+      <tr>
+        <td>${escapeHtml(item.date || '')}</td>
+        <td class="font-semibold text-white">${escapeHtml(item.ticker || '')}</td>
+        <td>${escapeHtml(item.setup || '')}</td>
+        <td><span class="badge ${item.status === 'open' ? 'open' : 'closed'}">${statusText}</span></td>
+        <td class="${pnl >= 0 ? 'profit-text' : 'loss-text'}">${formatCurrency(pnl)}</td>
+        <td>
+          <div class="action-row">
+            <button class="btn btn-secondary btn-sm" onclick="editJournal('${item.id}')">Sửa</button>
+            <button class="btn btn-secondary btn-sm" onclick="deleteJournal('${item.id}')">Xóa</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function saveJournal() {
+  if (!currentUser) return;
+  const payload = {
+    userId: currentUser.uid,
+    date: getValue('journal-date'),
+    ticker: getValue('journal-ticker').toUpperCase(),
+    setup: getValue('journal-setup'),
+    status: getValue('journal-status'),
+    entryPrice: toNumber('journal-entry'),
+    exitPrice: toNumber('journal-exit'),
+    pnl: toNumber('journal-pnl'),
+    imageUrl: getValue('journal-image'),
+    emotion: getValue('journal-emotion'),
+    marketPulse: getValue('journal-market'),
+    note: getValue('journal-note'),
+    updatedAt: Date.now()
+  };
+
+  if (!payload.date || !payload.ticker) return alert('Ngày và mã là bắt buộc.');
+
+  const id = getValue('journal-id');
+  try {
+    if (id) {
+      const docRef = db.collection('journal').doc(id);
+      const snap = await docRef.get();
+      if (!snap.exists || snap.data().userId !== currentUser.uid) return alert('Không có quyền sửa dữ liệu này.');
+      await docRef.set(payload, { merge: true });
+    } else {
+      payload.createdAt = Date.now();
+      await db.collection('journal').add(payload);
+    }
+    clearJournalForm();
+  } catch (error) {
+    console.error(error);
+    alert('Không lưu được lệnh. Kiểm tra Rules và Index của Firestore.');
+  }
+}
+
+window.editJournal = function(id) {
+  const item = state.journal.find(x => x.id === id);
+  if (!item) return;
+  setValue('journal-id', item.id);
+  setValue('journal-date', item.date || '');
+  setValue('journal-ticker', item.ticker || '');
+  setValue('journal-setup', item.setup || '');
+  setValue('journal-status', item.status || 'open');
+  setValue('journal-entry', item.entryPrice ?? '');
+  setValue('journal-exit', item.exitPrice ?? '');
+  setValue('journal-pnl', item.pnl ?? '');
+  setValue('journal-image', item.imageUrl || '');
+  setValue('journal-emotion', item.emotion || '');
+  setValue('journal-market', item.marketPulse || '');
+  setValue('journal-note', item.note || '');
+  switchTab('journal');
+};
+window.deleteJournal = async function(id) {
+  if (!confirm('Xóa lệnh này?')) return;
+  await db.collection('journal').doc(id).delete();
+};
+function clearJournalForm() {
+  ['journal-id','journal-date','journal-ticker','journal-setup','journal-entry','journal-exit','journal-pnl','journal-image','journal-emotion','journal-market','journal-note'].forEach(id => setValue(id, ''));
+  setValue('journal-status', 'open');
+}
+
+function renderWatchlistTable() {
+  const body = document.getElementById('watchlist-body');
+  if (!state.watchlist.length) {
+    body.innerHTML = '<tr><td colspan="5" class="empty-state">Chưa có watchlist.</td></tr>';
+    return;
+  }
+  body.innerHTML = state.watchlist.map(item => `
+    <tr>
+      <td class="font-semibold text-white">${escapeHtml(item.ticker || '')}</td>
+      <td>${escapeHtml(item.pattern || '')}</td>
+      <td>${escapeHtml(item.buyZone || '')}</td>
+      <td>${escapeHtml(item.status || '')}</td>
+      <td><div class="action-row"><button class="btn btn-secondary btn-sm" onclick="editWatchlist('${item.id}')">Sửa</button><button class="btn btn-secondary btn-sm" onclick="deleteWatchlist('${item.id}')">Xóa</button></div></td>
+    </tr>
+  `).join('');
+}
+async function saveWatchlist() {
+  if (!currentUser) return;
+  const payload = {
+    userId: currentUser.uid,
+    ticker: getValue('watchlist-ticker').toUpperCase(),
+    pattern: getValue('watchlist-pattern'),
+    buyZone: getValue('watchlist-buy-zone'),
+    status: getValue('watchlist-status'),
+    note: getValue('watchlist-note'),
+    updatedAt: Date.now()
+  };
+  if (!payload.ticker) return alert('Mã là bắt buộc.');
+  const id = getValue('watchlist-id');
+  if (id) await db.collection('watchlist').doc(id).set(payload, { merge: true });
+  else { payload.createdAt = Date.now(); await db.collection('watchlist').add(payload); }
+  clearWatchlistForm();
+}
+window.editWatchlist = function(id) {
+  const item = state.watchlist.find(x => x.id === id);
+  if (!item) return;
+  setValue('watchlist-id', item.id);
+  setValue('watchlist-ticker', item.ticker || '');
+  setValue('watchlist-pattern', item.pattern || '');
+  setValue('watchlist-buy-zone', item.buyZone || '');
+  setValue('watchlist-status', item.status || 'watching');
+  setValue('watchlist-note', item.note || '');
+  switchTab('watchlist');
+};
+window.deleteWatchlist = async function(id) { if (confirm('Xóa watchlist này?')) await db.collection('watchlist').doc(id).delete(); };
+function clearWatchlistForm() { ['watchlist-id','watchlist-ticker','watchlist-pattern','watchlist-buy-zone','watchlist-note'].forEach(id => setValue(id, '')); setValue('watchlist-status', 'watching'); }
+
+function renderPatterns() {
+  const wrap = document.getElementById('patterns-grid');
+  if (!state.patterns.length) {
+    wrap.innerHTML = '<div class="empty-state">Chưa có mẫu hình.</div>';
+    return;
+  }
+  wrap.innerHTML = state.patterns.map(item => {
+    const conditions = splitLines(item.conditions).map(x => `<li>${escapeHtml(x)}</li>`).join('');
+    const trigger = splitLines(item.trigger).map(x => `<li>${escapeHtml(x)}</li>`).join('');
+    return `
+      <div class="glass-panel pattern-card">
+        ${item.imageUrl ? `<img src="${escapeAttribute(item.imageUrl)}" alt="${escapeAttribute(item.name || 'pattern')}" />` : '<div class="empty-state">Chưa có ảnh minh họa.</div>'}
+        <div>
+          <h4>${escapeHtml(item.name || '')}</h4>
+          <div class="pattern-meta">${escapeHtml(item.strategy || '')}</div>
+        </div>
+        <div class="text-sm text-slate-300">${escapeHtml(item.description || '')}</div>
+        <div>
+          <div class="text-xs font-bold text-slate-400 uppercase mb-1">Điều kiện nền</div>
+          <ul class="pattern-list">${conditions || '<li>-</li>'}</ul>
+        </div>
+        <div>
+          <div class="text-xs font-bold text-slate-400 uppercase mb-1">Điều kiện kích hoạt</div>
+          <ul class="pattern-list">${trigger || '<li>-</li>'}</ul>
+        </div>
+        ${userRole === 'admin' ? `<div class="action-row"><button class="btn btn-secondary btn-sm" onclick="editPattern('${item.id}')">Sửa</button><button class="btn btn-secondary btn-sm" onclick="deletePattern('${item.id}')">Xóa</button></div>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+async function savePattern() {
+  if (userRole !== 'admin') return alert('Chỉ admin mới được sửa mẫu hình.');
+  const payload = {
+    name: getValue('pattern-name'),
+    strategy: getValue('pattern-strategy'),
+    imageUrl: getValue('pattern-image'),
+    description: getValue('pattern-description'),
+    conditions: getValue('pattern-conditions'),
+    trigger: getValue('pattern-trigger'),
+    updatedAt: Date.now(),
+    updatedBy: currentUser.email
+  };
+  if (!payload.name) return alert('Tên mẫu hình là bắt buộc.');
+  const id = getValue('pattern-id');
+  if (id) await db.collection('patterns').doc(id).set(payload, { merge: true });
+  else { payload.createdAt = Date.now(); await db.collection('patterns').add(payload); }
+  clearPatternForm();
+}
+window.editPattern = function(id) {
+  if (userRole !== 'admin') return;
+  const item = state.patterns.find(x => x.id === id);
+  if (!item) return;
+  setValue('pattern-id', item.id);
+  setValue('pattern-name', item.name || '');
+  setValue('pattern-strategy', item.strategy || '');
+  setValue('pattern-image', item.imageUrl || '');
+  setValue('pattern-description', item.description || '');
+  setValue('pattern-conditions', item.conditions || '');
+  setValue('pattern-trigger', item.trigger || '');
+  switchTab('patterns');
+};
+window.deletePattern = async function(id) {
+  if (userRole !== 'admin') return;
+  if (confirm('Xóa mẫu hình này?')) await db.collection('patterns').doc(id).delete();
+};
+function clearPatternForm() { ['pattern-id','pattern-name','pattern-strategy','pattern-image','pattern-description','pattern-conditions','pattern-trigger'].forEach(id => setValue(id, '')); }
+
+async function loadPendingRegistrations() {
+  if (userRole !== 'admin') return;
+  const snap = await db.collection('pending_registrations').orderBy('createdAt', 'desc').get();
+  state.pending = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  const body = document.getElementById('pending-body');
+  if (!state.pending.length) {
+    body.innerHTML = '<tr><td colspan="5" class="empty-state">Không có yêu cầu chờ duyệt.</td></tr>';
+    return;
+  }
+  body.innerHTML = state.pending.map(item => `
+    <tr>
+      <td>${escapeHtml(item.name || '')}</td>
+      <td>${escapeHtml(item.email || '')}</td>
+      <td>${escapeHtml(item.password || '')}</td>
+      <td>${escapeHtml(item.status || 'pending')}</td>
+      <td>
+        <div class="action-row">
+          <button class="btn btn-primary btn-sm" onclick="approveEmail('${escapeJs(item.email)}', '${escapeJs(item.name || '')}')">Duyệt</button>
+          <button class="btn btn-secondary btn-sm" onclick="rejectEmail('${escapeJs(item.email)}')">Từ chối</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+window.approveEmail = async function(email, name) {
+  if (userRole !== 'admin') return;
+  await db.collection('approved_emails').doc(email.toLowerCase()).set({
+    email: email.toLowerCase(),
+    approved: true,
+    role: 'user',
+    approvedBy: currentUser.email,
+    approvedAt: Date.now(),
+    name: name || ''
+  }, { merge: true });
+  await db.collection('pending_registrations').doc(email.toLowerCase()).set({ status: 'approved', updatedAt: Date.now() }, { merge: true });
+  loadPendingRegistrations();
+};
+window.rejectEmail = async function(email) {
+  if (userRole !== 'admin') return;
+  await db.collection('pending_registrations').doc(email.toLowerCase()).set({ status: 'rejected', updatedAt: Date.now() }, { merge: true });
+  loadPendingRegistrations();
 };
 
-function switchTab(tabId) {
-  document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
-  document.getElementById('tab-' + tabId).classList.remove('hidden');
-  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('btn-' + tabId).classList.add('active');
+async function seedDefaultsIfMissing() {
+  try {
+    const marketRef = db.collection('settings').doc('market');
+    const marketSnap = await marketRef.get();
+    if (!marketSnap.exists) await marketRef.set({ distDays: 0, updatedAt: Date.now() });
+  } catch (e) {
+    console.warn('Seed skipped', e);
+  }
 }
 
-async function updateGlobalMarketSettings() {
-  if (userRole !== 'admin') return alert('Chỉ admin mới cập nhật được dữ liệu thị trường.');
-  const days = Number(document.getElementById('market-dist-days').value || 0);
-  await db.collection('settings').doc('market').set({
-    distDays: days,
-    updatedBy: currentUser?.email || '',
-    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-  }, { merge: true });
-  alert('Đã cập nhật dữ liệu cho toàn hệ thống.');
+function setupLanding() {
+  const canvas = document.getElementById('network-canvas');
+  const ctx = canvas.getContext('2d');
+  let w = 0, h = 0;
+  const mouse = { x: null, y: null, radius: 140 };
+  const colors = ['#22c55e', '#3b82f6', '#eab308', '#ef4444'];
+  const particles = [];
+  const count = 85;
+
+  function resize() {
+    w = canvas.width = window.innerWidth;
+    h = canvas.height = window.innerHeight;
+  }
+  class Particle {
+    constructor() { this.reset(); this.x = Math.random() * w; this.y = Math.random() * h; }
+    reset() {
+      this.size = Math.random() * 2 + 1;
+      this.color = colors[Math.floor(Math.random() * colors.length)];
+      this.vx = (Math.random() - 0.5) * 0.7;
+      this.vy = (Math.random() - 0.5) * 0.7;
+    }
+    update() {
+      this.x += this.vx; this.y += this.vy;
+      if (this.x < 0 || this.x > w) this.vx *= -1;
+      if (this.y < 0 || this.y > h) this.vy *= -1;
+    }
+    draw() {
+      ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2); ctx.fillStyle = this.color; ctx.fill();
+    }
+  }
+  function connect() {
+    for (let i = 0; i < particles.length; i++) {
+      for (let j = i + 1; j < particles.length; j++) {
+        const dx = particles[i].x - particles[j].x;
+        const dy = particles[i].y - particles[j].y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 120) {
+          ctx.beginPath();
+          ctx.strokeStyle = `rgba(255,255,255,${0.08 * (1 - dist / 120)})`;
+          ctx.moveTo(particles[i].x, particles[i].y);
+          ctx.lineTo(particles[j].x, particles[j].y);
+          ctx.stroke();
+        }
+      }
+      if (mouse.x !== null) {
+        const mdx = particles[i].x - mouse.x;
+        const mdy = particles[i].y - mouse.y;
+        const mdist = Math.sqrt(mdx * mdx + mdy * mdy);
+        if (mdist < mouse.radius) {
+          ctx.beginPath();
+          ctx.strokeStyle = `rgba(18,216,158,${0.25 * (1 - mdist / mouse.radius)})`;
+          ctx.moveTo(particles[i].x, particles[i].y);
+          ctx.lineTo(mouse.x, mouse.y);
+          ctx.stroke();
+        }
+      }
+    }
+  }
+  function animate() {
+    ctx.clearRect(0, 0, w, h);
+    particles.forEach(p => { p.update(); p.draw(); });
+    connect();
+    requestAnimationFrame(animate);
+  }
+  resize();
+  for (let i = 0; i < count; i++) particles.push(new Particle());
+  window.addEventListener('resize', resize);
+  window.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
+  window.addEventListener('mouseleave', () => { mouse.x = null; mouse.y = null; });
+  animate();
 }
 
-window.App = App;
-window.switchTab = switchTab;
-window.updateGlobalMarketSettings = updateGlobalMarketSettings;
-window.addEventListener('DOMContentLoaded', () => App.init());
+function getValue(id) { return (document.getElementById(id)?.value || '').trim(); }
+function setValue(id, value) { const el = document.getElementById(id); if (el) el.value = value; }
+function toNumber(id) { const n = Number(getValue(id)); return Number.isFinite(n) ? n : 0; }
+function formatCurrency(value) { return `${Number(value || 0).toLocaleString('vi-VN')} đ`; }
+function splitLines(text) { return String(text || '').split('\n').map(x => x.trim()).filter(Boolean); }
+function escapeHtml(s) { return String(s ?? '').replace(/[&<>"']/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
+function escapeAttribute(s) { return escapeHtml(s).replace(/`/g, '&#96;'); }
+function escapeJs(s) { return String(s ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"); }
+function mapAuthError(error) {
+  const code = error?.code || '';
+  if (code.includes('wrong-password')) return 'Sai mật khẩu.';
+  if (code.includes('user-not-found')) return 'Email chưa tồn tại.';
+  if (code.includes('invalid-email')) return 'Email không hợp lệ.';
+  if (code.includes('email-already-in-use')) return 'Email đã có tài khoản.';
+  if (code.includes('weak-password')) return 'Mật khẩu quá yếu, cần ít nhất 6 ký tự.';
+  return error?.message || 'Có lỗi xảy ra.';
+}

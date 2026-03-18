@@ -1,3 +1,4 @@
+// Điền đúng cấu hình Firebase project của bạn tại đây.
 const firebaseConfig = {
   apiKey: "AIzaSyCapUGa35wIhvA2Y0NcCzUYCqLnOXEFkJc",
   authDomain: "cacon-stock-b4cab.firebaseapp.com",
@@ -9,5 +10,6 @@ const firebaseConfig = {
 };
 
 firebase.initializeApp(firebaseConfig);
+window.auth = firebase.auth();
 window.db = firebase.firestore();
 window.storage = firebase.storage();

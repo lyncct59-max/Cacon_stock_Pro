@@ -1,543 +1,525 @@
-let currentUser = null;
-const state = {
-  activeTab: 'dashboard',
-  trades: [],
-  watchlists: [],
-  patterns: [],
-  market: { distDays: 0, tone: 'Tích cực', note: '' },
-  editingTradeId: null,
-  editingWatchId: null,
-  editingPatternId: null
-};
+const App = {
+  state: {
+    user: null,
+    trades: [],
+    watchlists: [],
+    patterns: [],
+    market: { distDays: 0, sentiment: '', leaders: '', note: '' },
+    selectedTradeId: null,
+    editingTradeId: null,
+    editingWatchlistId: null,
+    editingPatternId: null,
+    loginVisible: false
+  },
 
-const refs = {
-  landing: document.getElementById('landing-screen'),
-  loginModal: document.getElementById('login-modal'),
-  loginError: document.getElementById('login-error'),
-  logoutBtn: document.getElementById('logout-btn'),
-  userChip: document.getElementById('user-chip')
-};
+  init() {
+    this.bindUI();
+    this.initLanding();
+    this.watchAuth();
+    this.renderAll();
+    lucide.createIcons();
+  },
 
-window.addEventListener('load', () => {
-  initLanding();
-  bindUI();
-  lucide.createIcons();
-  computeQualityGuide();
-});
+  bindUI() {
+    document.querySelectorAll('[data-tab]').forEach(btn => btn.addEventListener('click', () => this.switchTab(btn.dataset.tab)));
+    document.querySelectorAll('[data-tab-jump]').forEach(btn => btn.addEventListener('click', () => this.switchTab(btn.dataset.tabJump)));
+    document.querySelectorAll('[data-close]').forEach(btn => btn.addEventListener('click', () => this.hideModal(btn.dataset.close)));
 
-auth.onAuthStateChanged(async (user) => {
-  currentUser = user;
-  if (user) {
-    refs.loginModal.classList.add('hidden');
-    refs.userChip.textContent = user.email;
-    refs.logoutBtn.classList.remove('hidden');
-    await Promise.all([loadTrades(), loadWatchlists(), loadPatterns(), loadMarket()]);
-    renderAll();
-  } else {
-    refs.userChip.textContent = 'Chưa đăng nhập';
-    refs.logoutBtn.classList.add('hidden');
-    state.trades = []; state.watchlists = []; state.patterns = []; state.market = { distDays: 0, tone: 'Tích cực', note: '' };
-    renderAll();
-  }
-});
+    document.getElementById('landing-login').addEventListener('click', () => { this.hideLanding(); this.openLogin(); });
+    document.getElementById('landing-demo').addEventListener('click', () => { this.hideLanding(); this.closeLogin(); this.setSyncStatus('Đang xem giao diện demo'); });
+    document.getElementById('btn-open-login').addEventListener('click', () => this.openLogin());
+    document.getElementById('close-login').addEventListener('click', () => this.closeLogin());
+    document.getElementById('btn-login').addEventListener('click', () => this.handleLogin());
+    document.getElementById('btn-logout').addEventListener('click', () => auth.signOut());
+    document.getElementById('toggle-password').addEventListener('click', () => this.togglePassword());
 
-function bindUI() {
-  document.querySelectorAll('[data-tab]').forEach(btn => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
-  document.getElementById('open-login-btn').onclick = () => refs.loginModal.classList.remove('hidden');
-  document.getElementById('skip-intro-btn').onclick = () => refs.landing.classList.add('hidden');
-  document.getElementById('close-login-btn').onclick = () => refs.loginModal.classList.add('hidden');
-  document.getElementById('login-btn').onclick = handleLogin;
-  refs.logoutBtn.onclick = () => auth.signOut();
-  document.getElementById('toggle-login-pass').onclick = () => togglePassword('login-pass');
-  document.getElementById('new-trade-btn').onclick = () => openTradeModal();
-  document.getElementById('new-watchlist-btn').onclick = () => openWatchModal();
-  document.getElementById('new-pattern-btn').onclick = () => openPatternModal();
-  document.getElementById('save-trade-btn').onclick = saveTrade;
-  document.getElementById('save-watchlist-btn').onclick = saveWatchlist;
-  document.getElementById('save-pattern-btn').onclick = savePattern;
-  document.getElementById('save-market-btn').onclick = saveMarket;
-  document.querySelectorAll('[data-close]').forEach(btn => btn.onclick = () => document.getElementById(btn.dataset.close).classList.add('hidden'));
+    document.getElementById('btn-add-trade').addEventListener('click', () => this.openTradeModal());
+    document.getElementById('btn-save-trade').addEventListener('click', () => this.saveTrade());
+    document.getElementById('btn-add-watchlist').addEventListener('click', () => this.openWatchlistModal());
+    document.getElementById('btn-add-watchlist-2').addEventListener('click', () => this.openWatchlistModal());
+    document.getElementById('btn-save-watchlist').addEventListener('click', () => this.saveWatchlist());
+    document.getElementById('btn-add-pattern').addEventListener('click', () => this.openPatternModal());
+    document.getElementById('btn-save-pattern').addEventListener('click', () => this.savePattern());
+    document.getElementById('btn-save-market').addEventListener('click', () => this.saveMarket());
 
-  ['trade-setup','trade-checklist','trade-market-pulse','trade-entry','trade-stop','trade-risk','trade-emotion','trade-mistake','trade-note'].forEach(id => {
-    const el = document.getElementById(id);
-    el.addEventListener('input', renderTradeQualityBreakdown);
-    el.addEventListener('change', renderTradeQualityBreakdown);
-  });
-  document.getElementById('trade-result').addEventListener('change', syncTradeStatusWithResult);
-  document.getElementById('trade-status').addEventListener('change', syncTradeResultWithStatus);
+    ['trade-setup','trade-checklist','trade-market-pulse','trade-entry','trade-stop','trade-risk-pct','trade-mistake','trade-note','trade-result'].forEach(id => {
+      document.getElementById(id).addEventListener('input', () => this.refreshTradeQualityUI());
+      document.getElementById(id).addEventListener('change', () => this.refreshTradeQualityUI());
+    });
+    document.getElementById('trade-result').addEventListener('change', () => this.syncCloseState());
 
-  ['journal-search','journal-status-filter','journal-result-filter'].forEach(id => document.getElementById(id).addEventListener('input', renderJournalTable));
-  ['quality-checklist-count','quality-market','quality-risk','quality-execution','quality-discipline'].forEach(id => document.getElementById(id).addEventListener('input', computeQualityGuide));
-}
+    ['filter-search','filter-result','filter-close'].forEach(id => document.getElementById(id).addEventListener('input', () => this.renderJournal()));
+  },
 
-function initLanding() {
-  const canvas = document.getElementById('landing-canvas');
-  const ctx = canvas.getContext('2d');
-  let w, h, particles = [], mouse = { x: null, y: null, active: false };
-  const colors = ['#34d399', '#60a5fa', '#f59e0b', '#ef4444', '#22c55e'];
-
-  function resize() {
-    w = canvas.width = window.innerWidth;
-    h = canvas.height = window.innerHeight;
-    particles = Array.from({ length: Math.min(95, Math.max(55, Math.floor(w / 24))) }, () => ({
-      x: Math.random() * w,
-      y: Math.random() * h,
-      vx: (Math.random() - .5) * .7,
-      vy: (Math.random() - .5) * .7,
-      r: Math.random() * 2.4 + 1.6,
+  initLanding() {
+    const canvas = document.getElementById('landing-canvas');
+    const ctx = canvas.getContext('2d');
+    const colors = ['#34d399', '#60a5fa', '#f59e0b', '#ef4444', '#22c55e'];
+    const mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2, active: false };
+    const particles = Array.from({ length: 75 }, () => ({
+      x: Math.random() * window.innerWidth,
+      y: Math.random() * window.innerHeight,
+      vx: (Math.random() - 0.5) * .8,
+      vy: (Math.random() - 0.5) * .8,
+      r: 1.5 + Math.random() * 2.8,
       c: colors[Math.floor(Math.random() * colors.length)]
     }));
-  }
-
-  function tick() {
-    ctx.clearRect(0, 0, w, h);
-    particles.forEach(p => {
-      p.x += p.vx; p.y += p.vy;
-      if (p.x < 0 || p.x > w) p.vx *= -1;
-      if (p.y < 0 || p.y > h) p.vy *= -1;
-      if (mouse.active) {
-        const dx = mouse.x - p.x, dy = mouse.y - p.y, dist = Math.hypot(dx, dy);
-        if (dist < 140) {
-          p.x -= dx * 0.004;
-          p.y -= dy * 0.004;
+    const resize = () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; };
+    resize();
+    window.addEventListener('resize', resize);
+    canvas.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; mouse.active = true; });
+    canvas.addEventListener('mouseleave', () => { mouse.active = false; });
+    const frame = () => {
+      if (document.getElementById('landing-screen').classList.contains('hidden')) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      particles.forEach((p, i) => {
+        p.x += p.vx; p.y += p.vy;
+        if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
+        if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
+        if (mouse.active) {
+          const dx = mouse.x - p.x, dy = mouse.y - p.y, d = Math.hypot(dx, dy);
+          if (d < 120) { p.x -= dx * 0.006; p.y -= dy * 0.006; }
         }
+        for (let j = i + 1; j < particles.length; j++) {
+          const q = particles[j], d = Math.hypot(p.x - q.x, p.y - q.y);
+          if (d < 130) {
+            ctx.strokeStyle = `rgba(255,255,255,${0.12 - d / 1450})`;
+            ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
+          }
+        }
+        if (mouse.active) {
+          const dm = Math.hypot(mouse.x - p.x, mouse.y - p.y);
+          if (dm < 155) {
+            ctx.strokeStyle = 'rgba(255,255,255,.10)';
+            ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(mouse.x, mouse.y); ctx.stroke();
+          }
+        }
+        ctx.fillStyle = p.c; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+      });
+      requestAnimationFrame(frame);
+    };
+    frame();
+  },
+
+  hideLanding() { document.getElementById('landing-screen').classList.add('hidden'); },
+  openLogin() { document.getElementById('login-modal').classList.remove('hidden'); this.state.loginVisible = true; },
+  closeLogin() { document.getElementById('login-modal').classList.add('hidden'); this.state.loginVisible = false; },
+  hideModal(id) { document.getElementById(id).classList.add('hidden'); },
+  openModal(id) { document.getElementById(id).classList.remove('hidden'); },
+  togglePassword() {
+    const el = document.getElementById('login-pass');
+    el.type = el.type === 'password' ? 'text' : 'password';
+  },
+
+  watchAuth() {
+    auth.onAuthStateChanged(async user => {
+      this.state.user = user || null;
+      if (!user) {
+        document.getElementById('btn-logout').classList.add('hidden');
+        document.getElementById('btn-open-login').classList.remove('hidden');
+        document.getElementById('user-name').textContent = 'Guest demo';
+        this.setSyncStatus('Chưa đăng nhập');
+        this.renderAll();
+        return;
       }
-      ctx.beginPath(); ctx.fillStyle = p.c; ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+      this.closeLogin();
+      document.getElementById('btn-logout').classList.remove('hidden');
+      document.getElementById('btn-open-login').classList.add('hidden');
+      document.getElementById('user-name').textContent = user.email;
+      this.setSyncStatus('Đang đồng bộ Firebase...');
+      this.subscribeCollections();
     });
+  },
 
-    for (let i = 0; i < particles.length; i++) {
-      for (let j = i + 1; j < particles.length; j++) {
-        const a = particles[i], b = particles[j];
-        const dist = Math.hypot(a.x - b.x, a.y - b.y);
-        if (dist < 120) {
-          ctx.strokeStyle = `rgba(148,163,184,${(1 - dist / 120) * 0.18})`;
-          ctx.lineWidth = 1;
-          ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-        }
-      }
-      if (mouse.active) {
-        const p = particles[i];
-        const dist = Math.hypot(p.x - mouse.x, p.y - mouse.y);
-        if (dist < 150) {
-          ctx.strokeStyle = `rgba(255,255,255,${(1 - dist / 150) * 0.22})`;
-          ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(mouse.x, mouse.y); ctx.stroke();
-        }
-      }
+  async handleLogin() {
+    const email = document.getElementById('login-email').value.trim();
+    const password = document.getElementById('login-pass').value;
+    const msg = document.getElementById('login-message');
+    msg.textContent = '';
+    try {
+      await auth.signInWithEmailAndPassword(email, password);
+    } catch (error) {
+      msg.textContent = error.message || 'Không đăng nhập được.';
     }
-    requestAnimationFrame(tick);
-  }
+  },
 
-  window.addEventListener('resize', resize);
-  window.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; mouse.active = true; });
-  window.addEventListener('mouseleave', () => mouse.active = false);
-  resize(); tick();
-}
+  subscribeCollections() {
+    if (!this.state.user) return;
+    const uid = this.state.user.uid;
+    db.collection('journal').where('userId', '==', uid).orderBy('date', 'desc').onSnapshot(snap => {
+      this.state.trades = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      this.renderAll();
+      this.setSyncStatus('Đã đồng bộ Firebase');
+    });
+    db.collection('watchlists').where('userId', '==', uid).orderBy('createdAt', 'desc').onSnapshot(snap => {
+      this.state.watchlists = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      this.renderAll();
+    });
+    db.collection('patterns').where('userId', '==', uid).orderBy('createdAt', 'desc').onSnapshot(snap => {
+      this.state.patterns = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      this.renderAll();
+    });
+    db.collection('settings').doc(uid + '_market').onSnapshot(doc => {
+      this.state.market = doc.exists ? doc.data() : { distDays: 0, sentiment: '', leaders: '', note: '' };
+      this.renderMarket();
+    });
+  },
 
-function togglePassword(id) {
-  const el = document.getElementById(id);
-  el.type = el.type === 'password' ? 'text' : 'password';
-}
+  switchTab(tab) {
+    document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+    document.getElementById('tab-' + tab).classList.remove('hidden');
+    document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tab));
+  },
 
-async function handleLogin() {
-  const email = document.getElementById('login-email').value.trim();
-  const pass = document.getElementById('login-pass').value;
-  refs.loginError.classList.add('hidden');
-  try {
-    await auth.signInWithEmailAndPassword(email, pass);
-    refs.landing.classList.add('hidden');
-  } catch (err) {
-    refs.loginError.textContent = mapFirebaseError(err.code || err.message);
-    refs.loginError.classList.remove('hidden');
-  }
-}
+  setSyncStatus(text) { document.getElementById('sync-status').textContent = text; },
+  fmtMoney(v) { return `${Math.round(v || 0).toLocaleString('vi-VN')}đ`; },
 
-function mapFirebaseError(code) {
-  const m = {
-    'auth/invalid-login-credentials': 'Sai email hoặc mật khẩu.',
-    'auth/user-not-found': 'Không tìm thấy tài khoản.',
-    'auth/wrong-password': 'Mật khẩu không đúng.',
-    'auth/invalid-email': 'Email không hợp lệ.'
-  };
-  return m[code] || code || 'Đăng nhập thất bại.';
-}
+  tradePnl(trade) {
+    if (!trade.exit || !trade.entry || !trade.qty) return 0;
+    return (Number(trade.exit) - Number(trade.entry)) * Number(trade.qty);
+  },
 
-function requireAuth() {
-  if (!currentUser) {
-    refs.loginModal.classList.remove('hidden');
-    throw new Error('Bạn cần đăng nhập trước.');
-  }
-}
+  calculateTradeQuality(values) {
+    const checklist = (values.checklist || '').split('\n').map(s => s.trim()).filter(Boolean);
+    let tqSetup = 0, tqMarket = 0, tqRisk = 0, tqExecution = 0, tqDiscipline = 0;
+    if (values.setup) tqSetup += 10;
+    if (checklist.length >= 2) tqSetup += 10;
+    if (checklist.length >= 4) tqSetup += 10;
+    tqSetup = Math.min(30, tqSetup);
 
-function switchTab(tabId) {
-  state.activeTab = tabId;
-  document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
-  document.getElementById('tab-' + tabId).classList.remove('hidden');
-  document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === tabId));
-}
+    const market = String(values.marketPulse || '').toLowerCase();
+    if (market.includes('tích cực')) tqMarket = 18;
+    else if (market.includes('trung tính') || market.includes('bình thường')) tqMarket = 12;
+    else tqMarket = 6;
 
-async function loadTrades() {
-  requireAuth();
-  const snap = await db.collection('journal').where('userId', '==', currentUser.uid).orderBy('date', 'desc').get();
-  state.trades = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-}
-async function loadWatchlists() {
-  requireAuth();
-  const snap = await db.collection('watchlists').where('userId', '==', currentUser.uid).orderBy('createdAt', 'desc').get();
-  state.watchlists = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-}
-async function loadPatterns() {
-  requireAuth();
-  const snap = await db.collection('patterns').where('userId', '==', currentUser.uid).orderBy('createdAt', 'desc').get();
-  state.patterns = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-}
-async function loadMarket() {
-  requireAuth();
-  const doc = await db.collection('settings').doc(currentUser.uid + '_market').get();
-  if (doc.exists) state.market = doc.data();
-  document.getElementById('market-dist-days').value = state.market.distDays || 0;
-  document.getElementById('market-tone').value = state.market.tone || 'Tích cực';
-  document.getElementById('market-note').value = state.market.note || '';
-}
+    const entry = Number(values.entry || 0);
+    const stop = Number(values.stop || 0);
+    const riskPct = Number(values.riskPct || 0);
+    if (entry > 0 && stop > 0 && stop < entry) tqRisk += 10;
+    if (riskPct > 0 && riskPct <= 1.25) tqRisk += 10;
+    tqRisk = Math.min(20, tqRisk);
 
-function renderAll() {
-  renderDashboard();
-  renderJournalTable();
-  renderWatchlists();
-  renderPatterns();
-  computeQualityGuide();
-  lucide.createIcons();
-}
+    tqExecution = 10;
+    if (String(values.note || '').trim().length >= 20) tqExecution += 5;
+    if (values.mistake === 'Không') tqExecution += 5;
+    if (values.mistake === 'FOMO') tqExecution -= 4;
+    tqExecution = Math.max(0, Math.min(20, tqExecution));
 
-function renderDashboard() {
-  const closedTrades = state.trades.filter(t => t.status === 'closed');
-  const pnl = closedTrades.reduce((s, t) => s + Number(t.pnl || 0), 0);
-  const avgQ = state.trades.length ? Math.round(state.trades.reduce((s, t) => s + Number(t.tradeQuality || 0), 0) / state.trades.length) : 0;
-  document.getElementById('kpi-trades').textContent = state.trades.length;
-  document.getElementById('kpi-open').textContent = state.trades.filter(t => t.status === 'open').length;
-  document.getElementById('kpi-pnl').textContent = formatCurrency(pnl);
-  document.getElementById('kpi-quality').textContent = avgQ;
-  document.getElementById('dashboard-trade-list').innerHTML = state.trades.slice(0, 5).map(t => `
-    <div class="doc-line">
-      <div>
-        <div class="font-bold text-white">${escapeHtml(t.ticker || '-')} <span class="text-slate-400 font-medium">· ${escapeHtml(t.setup || '-')}</span></div>
-        <div class="text-xs text-slate-400 mt-1">${escapeHtml(t.date || '')} · ${renderResultLabel(t.result)}</div>
-      </div>
-      <div class="text-right">
-        <div class="font-black ${Number(t.pnl) >= 0 ? 'text-emerald-400' : 'text-rose-400'}">${formatCurrency(Number(t.pnl || 0))}</div>
-        <div class="text-xs text-slate-400">TQ ${t.tradeQuality || 0}</div>
-      </div>
-    </div>
-  `).join('') || `<div class="text-slate-400 text-sm">Chưa có dữ liệu giao dịch.</div>`;
-}
+    if (values.mistake === 'Không') tqDiscipline = 10;
+    else if (values.mistake === 'Bán non') tqDiscipline = 6;
+    else if (values.mistake === 'FOMO') tqDiscipline = 4;
+    else if (values.mistake === 'Gồng lỗ') tqDiscipline = 2;
+    else tqDiscipline = 5;
 
-function renderJournalTable() {
-  const q = document.getElementById('journal-search').value.trim().toLowerCase();
-  const statusFilter = document.getElementById('journal-status-filter').value;
-  const resultFilter = document.getElementById('journal-result-filter').value;
-  const rows = state.trades.filter(t => {
-    const matchesQ = !q || [t.ticker, t.setup, t.note].some(v => (v || '').toLowerCase().includes(q));
-    const matchesStatus = statusFilter === 'all' || t.status === statusFilter;
-    const matchesResult = resultFilter === 'all' || t.result === resultFilter;
-    return matchesQ && matchesStatus && matchesResult;
-  });
-  document.getElementById('journal-body').innerHTML = rows.map(t => `
-    <tr>
-      <td class="p-4">${escapeHtml(t.date || '')}</td>
-      <td class="p-4 font-black text-white">${escapeHtml(t.ticker || '')}</td>
-      <td class="p-4">${escapeHtml(t.setup || '')}</td>
-      <td class="p-4">${renderStatusLabel(t.status)}</td>
-      <td class="p-4">${renderResultLabel(t.result)}</td>
-      <td class="p-4 text-right font-black ${Number(t.pnl) >= 0 ? 'text-emerald-400' : 'text-rose-400'}">${formatCurrency(Number(t.pnl || 0))}</td>
-      <td class="p-4 text-center"><span class="table-chip ${rankColor(t.tradeQuality || 0)}">${t.tradeQuality || 0}</span></td>
-      <td class="p-4">
-        <div class="flex justify-end gap-2">
-          <button class="action-mini" onclick="openTradeModal('${t.id}')"><i data-lucide="pencil"></i></button>
-          <button class="action-mini" onclick="removeTrade('${t.id}')"><i data-lucide="trash-2"></i></button>
-        </div>
-      </td>
-    </tr>
-  `).join('') || `<tr><td colspan="8" class="p-6 text-center text-slate-400">Chưa có lệnh nào.</td></tr>`;
-  lucide.createIcons();
-}
+    const total = tqSetup + tqMarket + tqRisk + tqExecution + tqDiscipline;
+    const rank = total >= 90 ? 'Elite' : total >= 80 ? 'A' : total >= 70 ? 'B' : total >= 60 ? 'C' : 'D';
+    return { tqSetup, tqMarket, tqRisk, tqExecution, tqDiscipline, total, rank };
+  },
 
-function renderWatchlists() {
-  document.getElementById('watchlist-grid').innerHTML = state.watchlists.map(w => `
-    <div class="watch-card">
-      <div class="flex items-start justify-between gap-3">
-        <div>
-          <div class="text-xl font-black text-white">${escapeHtml(w.symbol || '')}</div>
-          <div class="text-xs text-slate-400 mt-1">${escapeHtml(w.group || '')} · ${escapeHtml(w.setup || '')}</div>
-        </div>
-        <div class="flex gap-2">
-          <button class="action-mini" onclick="openWatchModal('${w.id}')"><i data-lucide="pencil"></i></button>
-          <button class="action-mini" onclick="removeWatchlist('${w.id}')"><i data-lucide="trash-2"></i></button>
-        </div>
-      </div>
-      <div class="mt-4 text-sm text-slate-300">Buy zone: <b>${escapeHtml(w.zone || '-')}</b></div>
-      <div class="mt-2 text-sm text-slate-400">${escapeHtml(w.plan || '')}</div>
-    </div>
-  `).join('') || `<div class="text-slate-400 text-sm">Chưa có mã theo dõi.</div>`;
-  lucide.createIcons();
-}
+  currentTradeFormValues() {
+    return {
+      setup: document.getElementById('trade-setup').value.trim(),
+      checklist: document.getElementById('trade-checklist').value,
+      marketPulse: document.getElementById('trade-market-pulse').value.trim(),
+      entry: document.getElementById('trade-entry').value,
+      stop: document.getElementById('trade-stop').value,
+      riskPct: document.getElementById('trade-risk-pct').value,
+      mistake: document.getElementById('trade-mistake').value,
+      note: document.getElementById('trade-note').value
+    };
+  },
 
-function renderPatterns() {
-  document.getElementById('pattern-grid').innerHTML = state.patterns.map(p => `
-    <div class="pattern-card">
-      <div class="flex items-start justify-between gap-3">
-        <div>
-          <div class="text-lg font-black text-white">${escapeHtml(p.name || '')}</div>
-          <div class="text-xs text-slate-400 mt-1">${escapeHtml(p.strategy || '')}</div>
-        </div>
-        <div class="flex gap-2">
-          <button class="action-mini" onclick="openPatternModal('${p.id}')"><i data-lucide="pencil"></i></button>
-          <button class="action-mini" onclick="removePattern('${p.id}')"><i data-lucide="trash-2"></i></button>
-        </div>
-      </div>
-      <div class="mt-3 text-sm text-slate-300">${escapeHtml(p.description || '')}</div>
-      <div class="mt-4 text-xs text-slate-400">Nền: ${(p.conditions || []).length} điều kiện · Trigger: ${(p.triggers || []).length} điều kiện</div>
-    </div>
-  `).join('') || `<div class="text-slate-400 text-sm">Chưa có mẫu hình.</div>`;
-  lucide.createIcons();
-}
+  refreshTradeQualityUI() {
+    const q = this.calculateTradeQuality(this.currentTradeFormValues());
+    document.getElementById('tq-setup').textContent = `${q.tqSetup}/30`;
+    document.getElementById('tq-market').textContent = `${q.tqMarket}/20`;
+    document.getElementById('tq-risk').textContent = `${q.tqRisk}/20`;
+    document.getElementById('tq-execution').textContent = `${q.tqExecution}/20`;
+    document.getElementById('tq-discipline').textContent = `${q.tqDiscipline}/10`;
+    document.getElementById('tq-total').textContent = `${q.total}/100`;
+    document.getElementById('tq-rank').textContent = q.rank;
+    return q;
+  },
 
-function openTradeModal(id = null) {
-  state.editingTradeId = id;
-  document.getElementById('trade-modal-title').textContent = id ? 'Chỉnh sửa lệnh' : 'Tạo lệnh mới';
-  const t = state.trades.find(x => x.id === id) || { date: new Date().toISOString().slice(0,10), status:'open', result:'open', marketPulse:'Tích cực', emotion:'Tự tin', mistake:'Không', riskPct:1 };
-  setValue('trade-ticker', t.ticker || '');
-  setValue('trade-date', t.date || new Date().toISOString().slice(0,10));
-  setValue('trade-setup', t.setup || '');
-  setValue('trade-entry', t.entry || '');
-  setValue('trade-stop', t.stop || '');
-  setValue('trade-exit', t.exit || '');
-  setValue('trade-qty', t.qty || '');
-  setValue('trade-status', t.status || 'open');
-  setValue('trade-result', t.result || 'open');
-  setValue('trade-market-pulse', t.marketPulse || 'Tích cực');
-  setValue('trade-emotion', t.emotion || 'Tự tin');
-  setValue('trade-mistake', t.mistake || 'Không');
-  setValue('trade-risk', t.riskPct || 1);
-  setValue('trade-checklist', (t.checklist || []).join('\n'));
-  setValue('trade-note', t.note || '');
-  renderTradeQualityBreakdown();
-  document.getElementById('trade-modal').classList.remove('hidden');
-}
+  syncCloseState() {
+    const result = document.getElementById('trade-result').value;
+    if (result === 'open') {
+      document.getElementById('trade-exit').value = '';
+    }
+  },
 
-function openWatchModal(id = null) {
-  state.editingWatchId = id;
-  document.getElementById('watchlist-modal-title').textContent = id ? 'Chỉnh sửa mã theo dõi' : 'Thêm mã theo dõi';
-  const w = state.watchlists.find(x => x.id === id) || { group: 'near' };
-  setValue('watch-symbol', w.symbol || '');
-  setValue('watch-group', w.group || 'near');
-  setValue('watch-setup', w.setup || '');
-  setValue('watch-zone', w.zone || '');
-  setValue('watch-plan', w.plan || '');
-  document.getElementById('watchlist-modal').classList.remove('hidden');
-}
+  openTradeModal(trade = null) {
+    this.state.editingTradeId = trade?.id || null;
+    document.getElementById('trade-modal-title').textContent = trade ? 'Chỉnh sửa lệnh' : 'Thêm lệnh';
+    document.getElementById('trade-date').value = trade?.date || new Date().toISOString().slice(0, 10);
+    document.getElementById('trade-ticker').value = trade?.ticker || '';
+    document.getElementById('trade-strategy').value = trade?.strategy || '';
+    document.getElementById('trade-setup').value = trade?.setup || '';
+    document.getElementById('trade-entry').value = trade?.entry || '';
+    document.getElementById('trade-stop').value = trade?.stop || '';
+    document.getElementById('trade-exit').value = trade?.exit || '';
+    document.getElementById('trade-qty').value = trade?.qty || '';
+    document.getElementById('trade-market-pulse').value = trade?.marketPulse || '';
+    document.getElementById('trade-risk-pct').value = trade?.riskPct || 1;
+    document.getElementById('trade-result').value = trade?.result || 'open';
+    document.getElementById('trade-mistake').value = trade?.mistake || 'Không';
+    document.getElementById('trade-checklist').value = Array.isArray(trade?.checklist) ? trade.checklist.join('\n') : '';
+    document.getElementById('trade-note').value = trade?.note || '';
+    this.refreshTradeQualityUI();
+    this.openModal('trade-modal');
+  },
 
-function openPatternModal(id = null) {
-  state.editingPatternId = id;
-  document.getElementById('pattern-modal-title').textContent = id ? 'Chỉnh sửa mẫu hình' : 'Thêm mẫu hình';
-  const p = state.patterns.find(x => x.id === id) || {};
-  setValue('pattern-name', p.name || '');
-  setValue('pattern-strategy', p.strategy || '');
-  setValue('pattern-description', p.description || '');
-  setValue('pattern-conditions', (p.conditions || []).join('\n'));
-  setValue('pattern-triggers', (p.triggers || []).join('\n'));
-  document.getElementById('pattern-modal').classList.remove('hidden');
-}
-
-async function saveTrade() {
-  try {
-    requireAuth();
-    syncTradeStatusWithResult();
-    const q = calculateTradeQualityFromForm();
+  async saveTrade() {
+    if (!this.state.user) return alert('Bạn cần đăng nhập để lưu dữ liệu lên Firebase.');
+    const q = this.refreshTradeQualityUI();
     const payload = {
-      userId: currentUser.uid,
-      date: getValue('trade-date'),
-      ticker: getValue('trade-ticker').toUpperCase(),
-      setup: getValue('trade-setup'),
-      entry: num('trade-entry'),
-      stop: num('trade-stop'),
-      exit: nullableNum('trade-exit'),
-      qty: num('trade-qty'),
-      status: getValue('trade-status'),
-      result: getValue('trade-result'),
-      marketPulse: getValue('trade-market-pulse'),
-      emotion: getValue('trade-emotion'),
-      mistake: getValue('trade-mistake'),
-      riskPct: num('trade-risk'),
-      checklist: getValue('trade-checklist').split('\n').map(s => s.trim()).filter(Boolean),
-      note: getValue('trade-note'),
-      ...q,
-      pnl: calcPnl(num('trade-entry'), nullableNum('trade-exit'), num('trade-qty'), getValue('trade-status')),
+      userId: this.state.user.uid,
+      date: document.getElementById('trade-date').value,
+      ticker: document.getElementById('trade-ticker').value.trim().toUpperCase(),
+      strategy: document.getElementById('trade-strategy').value.trim(),
+      setup: document.getElementById('trade-setup').value.trim(),
+      entry: Number(document.getElementById('trade-entry').value || 0),
+      stop: Number(document.getElementById('trade-stop').value || 0),
+      exit: document.getElementById('trade-exit').value ? Number(document.getElementById('trade-exit').value) : null,
+      qty: Number(document.getElementById('trade-qty').value || 0),
+      marketPulse: document.getElementById('trade-market-pulse').value.trim(),
+      riskPct: Number(document.getElementById('trade-risk-pct').value || 0),
+      result: document.getElementById('trade-result').value,
+      status: document.getElementById('trade-result').value === 'open' ? 'open' : 'closed',
+      mistake: document.getElementById('trade-mistake').value,
+      checklist: document.getElementById('trade-checklist').value.split('\n').map(s => s.trim()).filter(Boolean),
+      note: document.getElementById('trade-note').value.trim(),
+      pnl: 0,
+      score: q.total,
+      qualityRank: q.rank,
+      tqSetup: q.tqSetup,
+      tqMarket: q.tqMarket,
+      tqRisk: q.tqRisk,
+      tqExecution: q.tqExecution,
+      tqDiscipline: q.tqDiscipline,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     };
-    if (state.editingTradeId) {
-      await db.collection('journal').doc(state.editingTradeId).set(payload, { merge: true });
+    payload.pnl = this.tradePnl(payload);
+    if (this.state.editingTradeId) {
+      await db.collection('journal').doc(this.state.editingTradeId).set(payload, { merge: true });
     } else {
       payload.createdAt = firebase.firestore.FieldValue.serverTimestamp();
       await db.collection('journal').add(payload);
     }
-    await loadTrades();
-    renderAll();
-    document.getElementById('trade-modal').classList.add('hidden');
-  } catch (e) {
-    alert(e.message || 'Không lưu được lệnh.');
-  }
-}
+    this.hideModal('trade-modal');
+  },
 
-async function saveWatchlist() {
-  try {
-    requireAuth();
+  openWatchlistModal(item = null) {
+    this.state.editingWatchlistId = item?.id || null;
+    document.getElementById('watchlist-modal-title').textContent = item ? 'Chỉnh sửa Watchlist' : 'Thêm Watchlist';
+    document.getElementById('watch-ticker').value = item?.ticker || '';
+    document.getElementById('watch-group').value = item?.group || 'near';
+    document.getElementById('watch-pattern').value = item?.pattern || '';
+    document.getElementById('watch-status').value = item?.status || '';
+    document.getElementById('watch-plan').value = item?.plan || '';
+    this.openModal('watchlist-modal');
+  },
+
+  async saveWatchlist() {
+    if (!this.state.user) return alert('Bạn cần đăng nhập để lưu Watchlist.');
     const payload = {
-      userId: currentUser.uid,
-      symbol: getValue('watch-symbol').toUpperCase(),
-      group: getValue('watch-group'),
-      setup: getValue('watch-setup'),
-      zone: getValue('watch-zone'),
-      plan: getValue('watch-plan'),
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      userId: this.state.user.uid,
+      ticker: document.getElementById('watch-ticker').value.trim().toUpperCase(),
+      group: document.getElementById('watch-group').value,
+      pattern: document.getElementById('watch-pattern').value.trim(),
+      status: document.getElementById('watch-status').value.trim(),
+      plan: document.getElementById('watch-plan').value.trim(),
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
     };
-    if (state.editingWatchId) await db.collection('watchlists').doc(state.editingWatchId).set(payload, { merge: true });
-    else { payload.createdAt = firebase.firestore.FieldValue.serverTimestamp(); await db.collection('watchlists').add(payload); }
-    await loadWatchlists(); renderWatchlists(); document.getElementById('watchlist-modal').classList.add('hidden');
-  } catch (e) { alert(e.message || 'Không lưu được watchlist.'); }
-}
+    if (this.state.editingWatchlistId) await db.collection('watchlists').doc(this.state.editingWatchlistId).set(payload, { merge: true });
+    else await db.collection('watchlists').add(payload);
+    this.hideModal('watchlist-modal');
+  },
 
-async function savePattern() {
-  try {
-    requireAuth();
+  openPatternModal(item = null) {
+    this.state.editingPatternId = item?.id || null;
+    document.getElementById('pattern-modal-title').textContent = item ? 'Chỉnh sửa mẫu hình' : 'Tạo mẫu hình';
+    document.getElementById('pattern-name').value = item?.name || '';
+    document.getElementById('pattern-strategy').value = item?.strategy || '';
+    document.getElementById('pattern-description').value = item?.description || '';
+    document.getElementById('pattern-conditions').value = Array.isArray(item?.conditions) ? item.conditions.join('\n') : '';
+    document.getElementById('pattern-triggers').value = Array.isArray(item?.triggers) ? item.triggers.join('\n') : '';
+    this.openModal('pattern-modal');
+  },
+
+  async savePattern() {
+    if (!this.state.user) return alert('Bạn cần đăng nhập để lưu Mẫu hình.');
     const payload = {
-      userId: currentUser.uid,
-      name: getValue('pattern-name'),
-      strategy: getValue('pattern-strategy'),
-      description: getValue('pattern-description'),
-      conditions: getValue('pattern-conditions').split('\n').map(s => s.trim()).filter(Boolean),
-      triggers: getValue('pattern-triggers').split('\n').map(s => s.trim()).filter(Boolean),
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      userId: this.state.user.uid,
+      name: document.getElementById('pattern-name').value.trim(),
+      strategy: document.getElementById('pattern-strategy').value.trim(),
+      description: document.getElementById('pattern-description').value.trim(),
+      conditions: document.getElementById('pattern-conditions').value.split('\n').map(s => s.trim()).filter(Boolean),
+      triggers: document.getElementById('pattern-triggers').value.split('\n').map(s => s.trim()).filter(Boolean),
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
     };
-    if (state.editingPatternId) await db.collection('patterns').doc(state.editingPatternId).set(payload, { merge: true });
-    else { payload.createdAt = firebase.firestore.FieldValue.serverTimestamp(); await db.collection('patterns').add(payload); }
-    await loadPatterns(); renderPatterns(); document.getElementById('pattern-modal').classList.add('hidden');
-  } catch (e) { alert(e.message || 'Không lưu được mẫu hình.'); }
-}
+    if (this.state.editingPatternId) await db.collection('patterns').doc(this.state.editingPatternId).set(payload, { merge: true });
+    else await db.collection('patterns').add(payload);
+    this.hideModal('pattern-modal');
+  },
 
-async function saveMarket() {
-  try {
-    requireAuth();
-    state.market = { distDays: num('market-dist-days'), tone: getValue('market-tone'), note: getValue('market-note'), userId: currentUser.uid, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
-    await db.collection('settings').doc(currentUser.uid + '_market').set(state.market, { merge: true });
-    alert('Đã lưu dữ liệu thị trường.');
-  } catch (e) { alert(e.message || 'Không lưu được dữ liệu thị trường.'); }
-}
+  async saveMarket() {
+    if (!this.state.user) return alert('Bạn cần đăng nhập để lưu Thị trường.');
+    await db.collection('settings').doc(this.state.user.uid + '_market').set({
+      userId: this.state.user.uid,
+      distDays: Number(document.getElementById('market-dist-days').value || 0),
+      sentiment: document.getElementById('market-sentiment').value.trim(),
+      leaders: document.getElementById('market-leaders').value.trim(),
+      note: document.getElementById('market-note').value.trim(),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+    alert('Đã lưu dữ liệu thị trường lên Firebase.');
+  },
 
-async function removeTrade(id) { if (confirm('Xóa lệnh này?')) { await db.collection('journal').doc(id).delete(); await loadTrades(); renderAll(); } }
-async function removeWatchlist(id) { if (confirm('Xóa mã này?')) { await db.collection('watchlists').doc(id).delete(); await loadWatchlists(); renderWatchlists(); } }
-async function removePattern(id) { if (confirm('Xóa mẫu hình này?')) { await db.collection('patterns').doc(id).delete(); await loadPatterns(); renderPatterns(); } }
+  filteredTrades() {
+    const q = document.getElementById('filter-search').value.trim().toLowerCase();
+    const result = document.getElementById('filter-result').value;
+    const closeFilter = document.getElementById('filter-close').value;
+    return this.state.trades.filter(t => {
+      const hitQ = !q || `${t.ticker} ${t.setup} ${t.strategy}`.toLowerCase().includes(q);
+      const hitResult = result === 'all' || t.result === result;
+      const hitClose = closeFilter === 'all'
+        || (closeFilter === 'open' && t.status === 'open')
+        || (closeFilter === 'closed' && t.status === 'closed')
+        || (closeFilter === 'takeprofit' && t.result === 'win')
+        || (closeFilter === 'stoploss' && t.result === 'loss');
+      return hitQ && hitResult && hitClose;
+    });
+  },
 
-function calculateTradeQualityFromForm() {
-  const setup = getValue('trade-setup');
-  const checklist = getValue('trade-checklist').split('\n').map(s => s.trim()).filter(Boolean);
-  const marketPulse = getValue('trade-market-pulse').toLowerCase();
-  const entry = num('trade-entry');
-  const stop = num('trade-stop');
-  const riskPct = num('trade-risk');
-  const emotion = getValue('trade-emotion');
-  const mistake = getValue('trade-mistake');
-  const note = getValue('trade-note');
+  renderDashboard() {
+    const trades = this.state.trades;
+    const openTrades = trades.filter(t => t.status === 'open').length;
+    const totalPnl = trades.reduce((sum, t) => sum + Number(t.pnl || 0), 0);
+    const avgQuality = trades.length ? Math.round(trades.reduce((sum, t) => sum + Number(t.score || 0), 0) / trades.length) : 0;
+    document.getElementById('kpi-trades').textContent = trades.length;
+    document.getElementById('kpi-open').textContent = openTrades;
+    document.getElementById('kpi-pnl').textContent = this.fmtMoney(totalPnl);
+    document.getElementById('kpi-quality').textContent = avgQuality;
 
-  let tqSetup = 0, tqMarket = 0, tqRisk = 0, tqExecution = 0, tqDiscipline = 0;
-  if (setup) tqSetup += 10;
-  if (checklist.length >= 2) tqSetup += 10;
-  if (checklist.length >= 4) tqSetup += 10;
-  if (marketPulse.includes('tích cực')) tqMarket = 18; else if (marketPulse.includes('trung tính')) tqMarket = 12; else tqMarket = 5;
-  if (entry > 0 && stop > 0 && stop < entry) tqRisk += 10;
-  if (riskPct > 0 && riskPct <= 1.25) tqRisk += 10;
-  tqExecution = 10;
-  if (note.length >= 20) tqExecution += 5;
-  if (mistake === 'Không') tqExecution += 5;
-  if (mistake === 'FOMO') tqExecution -= 4;
-  tqExecution = clamp(tqExecution, 0, 20);
-  if (mistake === 'Không') tqDiscipline = 10;
-  else if (mistake === 'Bán non') tqDiscipline = 6;
-  else if (mistake === 'FOMO') tqDiscipline = 4;
-  else if (mistake === 'Gồng lỗ') tqDiscipline = 2;
-  else tqDiscipline = 5;
-  if (emotion === 'Sợ hãi' || emotion === 'Tham lam') tqDiscipline = Math.max(0, tqDiscipline - 1);
-  const total = tqSetup + tqMarket + tqRisk + tqExecution + tqDiscipline;
-  return { tqSetup, tqMarket, tqRisk, tqExecution, tqDiscipline, tradeQuality: total, qualityRank: rankLabel(total) };
-}
-
-function renderTradeQualityBreakdown() {
-  const q = calculateTradeQualityFromForm();
-  document.getElementById('trade-quality-breakdown').innerHTML = [
-    ['Setup', q.tqSetup, 30],
-    ['Market', q.tqMarket, 20],
-    ['Risk', q.tqRisk, 20],
-    ['Execution', q.tqExecution, 20],
-    ['Discipline', q.tqDiscipline, 10],
-  ].map(([label, score, max]) => `<div class="break-row"><span>${label}</span><b>${score}/${max}</b></div>`).join('');
-  document.getElementById('trade-quality-total').textContent = q.tradeQuality;
-  document.getElementById('trade-quality-rank').textContent = q.qualityRank;
-  document.getElementById('trade-quality-rank').className = `table-chip ${rankColor(q.tradeQuality)}`;
-}
-
-function computeQualityGuide() {
-  const checklist = Math.max(0, Math.min(5, Number(document.getElementById('quality-checklist-count')?.value || 0)));
-  const market = document.getElementById('quality-market')?.value || 'positive';
-  const risk = document.getElementById('quality-risk')?.value || 'good';
-  const execution = document.getElementById('quality-execution')?.value || 'great';
-  const discipline = document.getElementById('quality-discipline')?.value || 'great';
-  const setupScore = checklist >= 4 ? 28 : checklist >= 3 ? 22 : checklist >= 2 ? 16 : 8;
-  const marketScore = market === 'positive' ? 18 : market === 'neutral' ? 12 : 5;
-  const riskScore = risk === 'good' ? 18 : risk === 'ok' ? 12 : 5;
-  const executionScore = execution === 'great' ? 18 : execution === 'ok' ? 12 : 5;
-  const disciplineScore = discipline === 'great' ? 9 : discipline === 'ok' ? 6 : 2;
-  const total = setupScore + marketScore + riskScore + executionScore + disciplineScore;
-  const box = document.getElementById('quality-result-box');
-  if (!box) return;
-  box.innerHTML = `
-    <div class="space-y-2 text-sm">
-      <div class="break-row"><span>Setup</span><b>${setupScore}/30</b></div>
-      <div class="break-row"><span>Market</span><b>${marketScore}/20</b></div>
-      <div class="break-row"><span>Risk</span><b>${riskScore}/20</b></div>
-      <div class="break-row"><span>Execution</span><b>${executionScore}/20</b></div>
-      <div class="break-row"><span>Discipline</span><b>${disciplineScore}/10</b></div>
-      <div class="mt-3 flex items-center justify-between rounded-2xl bg-black/20 px-4 py-3">
-        <div><div class="text-xs uppercase text-slate-400">Tổng điểm</div><div class="text-3xl font-black">${total}</div></div>
-        <div class="table-chip ${rankColor(total)}">${rankLabel(total)}</div>
+    document.getElementById('dashboard-watchlist').innerHTML = this.state.watchlists.slice(0, 4).map(item => `
+      <div class="watch-card panel">
+        <div class="flex items-start justify-between gap-3">
+          <div><div class="text-lg font-black">${item.ticker}</div><div class="text-sm text-slate-400">${item.pattern || 'Chưa gán pattern'}</div></div>
+          <span class="tag tag-sky">${item.group}</span>
+        </div>
+        <div class="text-sm text-slate-300 mt-3">${item.plan || 'Chưa có kế hoạch.'}</div>
       </div>
-    </div>
-  `;
-}
+    `).join('') || '<div class="text-sm text-slate-400">Chưa có watchlist.</div>';
 
-function syncTradeStatusWithResult() {
-  const result = getValue('trade-result');
-  if (result === 'win' || result === 'loss') setValue('trade-status', 'closed');
-  if (result === 'open') { setValue('trade-status', 'open'); setValue('trade-exit', ''); }
-}
-function syncTradeResultWithStatus() {
-  const status = getValue('trade-status');
-  if (status === 'open') { setValue('trade-result', 'open'); setValue('trade-exit', ''); }
-}
+    document.getElementById('dashboard-quality').innerHTML = trades.slice(0, 4).map(t => `
+      <div class="quality-row">
+        <span>${t.ticker} · ${t.setup || '—'}</span>
+        <strong>${t.score || 0}/100 · ${t.qualityRank || 'D'}</strong>
+      </div>
+    `).join('') || '<div class="text-sm text-slate-400">Chưa có lệnh để chấm điểm.</div>';
+  },
 
-function renderStatusLabel(v) { return `<span class="table-chip ${v === 'open' ? 'amber' : 'gray'}">${v === 'open' ? 'Đang mở' : 'Đã đóng'}</span>`; }
-function renderResultLabel(v) { if (v === 'win') return '<span class="table-chip green">Lãi</span>'; if (v === 'loss') return '<span class="table-chip rose">Lỗ</span>'; return '<span class="table-chip amber">Đang mở</span>'; }
-function rankLabel(score) { if (score >= 90) return 'Elite'; if (score >= 80) return 'A'; if (score >= 70) return 'B'; if (score >= 60) return 'C'; return 'D'; }
-function rankColor(score) { if (score >= 90) return 'green'; if (score >= 80) return 'sky'; if (score >= 70) return 'amber'; if (score >= 60) return 'gray'; return 'rose'; }
-function calcPnl(entry, exit, qty, status) { if (status !== 'closed' || !exit) return 0; return Math.round((exit - entry) * qty); }
-function formatCurrency(v) { return `${Number(v || 0).toLocaleString('vi-VN')}đ`; }
-function escapeHtml(s) { return String(s || '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
-function setValue(id, val) { document.getElementById(id).value = val ?? ''; }
-function getValue(id) { return document.getElementById(id).value.trim(); }
-function num(id) { return Number(document.getElementById(id).value || 0); }
-function nullableNum(id) { const v = document.getElementById(id).value; return v === '' ? null : Number(v); }
-function clamp(n, min, max) { return Math.max(min, Math.min(max, n)); }
+  renderJournal() {
+    const body = document.getElementById('journal-body');
+    body.innerHTML = this.filteredTrades().map(t => `
+      <tr>
+        <td>${t.date || ''}</td>
+        <td class="font-bold">${t.ticker || ''}</td>
+        <td>${t.setup || ''}</td>
+        <td>${t.entry || ''}</td>
+        <td>${t.stop || ''}</td>
+        <td>${t.exit ?? ''}</td>
+        <td>${this.resultTag(t)}</td>
+        <td><span class="tag ${t.score >= 80 ? 'tag-green' : t.score >= 60 ? 'tag-amber' : 'tag-rose'}">${t.score || 0} · ${t.qualityRank || 'D'}</span></td>
+        <td class="${Number(t.pnl) >= 0 ? 'text-emerald-400' : 'text-rose-400'}">${this.fmtMoney(t.pnl)}</td>
+        <td><button class="btn btn-secondary !px-3 !py-2" onclick="App.openTradeModalById('${t.id}')">Sửa</button></td>
+      </tr>
+    `).join('') || '<tr><td colspan="10" class="text-center text-slate-400 py-6">Chưa có dữ liệu.</td></tr>';
+  },
 
-window.openTradeModal = openTradeModal;
-window.openWatchModal = openWatchModal;
-window.openPatternModal = openPatternModal;
-window.removeTrade = removeTrade;
-window.removeWatchlist = removeWatchlist;
-window.removePattern = removePattern;
+  resultTag(t) {
+    if (t.result === 'win') return '<span class="tag tag-green">Lãi</span>';
+    if (t.result === 'loss') return '<span class="tag tag-rose">Lỗ</span>';
+    return '<span class="tag tag-sky">Đang mở</span>';
+  },
+
+  openTradeModalById(id) {
+    const trade = this.state.trades.find(t => t.id === id);
+    this.state.selectedTradeId = id;
+    this.openTradeModal(trade);
+  },
+
+  renderWatchlist() {
+    document.getElementById('watchlist-grid').innerHTML = this.state.watchlists.map(item => `
+      <div class="watch-card panel">
+        <div class="flex items-start justify-between gap-3 mb-3">
+          <div><div class="text-xl font-black">${item.ticker}</div><div class="text-sm text-slate-400">${item.pattern || 'Không có pattern'}</div></div>
+          <span class="tag tag-sky">${item.group}</span>
+        </div>
+        <div class="text-sm text-slate-300 mb-3">${item.status || 'Chưa có trạng thái'}</div>
+        <div class="text-sm text-slate-400 mb-4">${item.plan || 'Chưa có kế hoạch.'}</div>
+        <button class="btn btn-secondary" onclick="App.openWatchlistModalById('${item.id}')">Sửa</button>
+      </div>
+    `).join('') || '<div class="text-sm text-slate-400">Chưa có watchlist.</div>';
+  },
+
+  openWatchlistModalById(id) { this.openWatchlistModal(this.state.watchlists.find(x => x.id === id)); },
+
+  renderPatterns() {
+    document.getElementById('patterns-grid').innerHTML = this.state.patterns.map(item => `
+      <div class="pattern-card panel">
+        <div class="text-xl font-black mb-2">${item.name}</div>
+        <div class="text-sm text-emerald-300 mb-3">${item.strategy || ''}</div>
+        <div class="text-sm text-slate-300 mb-3">${item.description || ''}</div>
+        <div class="text-xs text-slate-400 mb-4">${(item.conditions || []).join(' • ')}</div>
+        <button class="btn btn-secondary" onclick="App.openPatternModalById('${item.id}')">Sửa</button>
+      </div>
+    `).join('') || '<div class="text-sm text-slate-400">Chưa có mẫu hình.</div>';
+  },
+
+  openPatternModalById(id) { this.openPatternModal(this.state.patterns.find(x => x.id === id)); },
+
+  renderQuality() {
+    const t = this.state.selectedTradeId ? this.state.trades.find(x => x.id === this.state.selectedTradeId) : this.state.trades[0];
+    const box = document.getElementById('quality-current');
+    if (!t) {
+      box.innerHTML = '<div class="text-sm text-slate-400">Chọn hoặc tạo một lệnh trong Nhật ký để xem Trade Quality.</div>';
+      return;
+    }
+    this.state.selectedTradeId = t.id;
+    box.innerHTML = `
+      <div class="panel p-4">
+        <div class="flex items-start justify-between gap-3 mb-3"><div><div class="text-2xl font-black">${t.ticker}</div><div class="text-sm text-slate-400">${t.strategy || ''} · ${t.setup || ''}</div></div><span class="tag ${t.score >= 80 ? 'tag-green' : t.score >= 60 ? 'tag-amber' : 'tag-rose'}">${t.score || 0}/100 · ${t.qualityRank || 'D'}</span></div>
+        <div class="space-y-3">
+          ${[['Setup', t.tqSetup || 0, 30], ['Market', t.tqMarket || 0, 20], ['Risk', t.tqRisk || 0, 20], ['Execution', t.tqExecution || 0, 20], ['Discipline', t.tqDiscipline || 0, 10]].map(([label, val, max]) => `
+            <div>
+              <div class="flex justify-between text-sm mb-1"><span>${label}</span><strong>${val}/${max}</strong></div>
+              <div class="h-2 rounded-full bg-slate-800 overflow-hidden"><div class="h-full bg-emerald-500 rounded-full" style="width:${(val/max)*100}%"></div></div>
+            </div>`).join('')}
+        </div>
+      </div>
+      <div class="hint-box">${t.result === 'win' ? 'Lệnh này có lãi, nhưng vẫn cần nhìn vào điểm quality để biết nó có thực sự đúng hệ thống hay chỉ do may mắn.' : t.result === 'loss' ? 'Lệnh lỗ chưa chắc là lệnh xấu. Hãy nhìn breakdown để biết lỗ do market hay do vi phạm kỷ luật.' : 'Lệnh đang mở: dùng Trade Quality để xem có đáng tiếp tục giữ lệnh theo plan hay không.'}</div>
+    `;
+  },
+
+  renderMarket() {
+    document.getElementById('market-dist-days').value = this.state.market.distDays || 0;
+    document.getElementById('market-sentiment').value = this.state.market.sentiment || '';
+    document.getElementById('market-leaders').value = this.state.market.leaders || '';
+    document.getElementById('market-note').value = this.state.market.note || '';
+  },
+
+  renderAll() {
+    this.renderDashboard();
+    this.renderJournal();
+    this.renderWatchlist();
+    this.renderPatterns();
+    this.renderQuality();
+    this.renderMarket();
+    lucide.createIcons();
+  }
+};
+
+window.App = App;
+window.addEventListener('DOMContentLoaded', () => App.init());

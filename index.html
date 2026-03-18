@@ -5,326 +5,254 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CACON Trading Journal</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode: 'class' }
+  </script>
   <script src="https://unpkg.com/lucide@latest"></script>
   <link rel="stylesheet" href="style.css" />
 </head>
-<body class="min-h-screen bg-slate-950 text-white overflow-hidden">
-  <canvas id="landing-canvas"></canvas>
+<body class="min-h-screen bg-slate-950 text-slate-100 overflow-hidden">
+  <div class="global-bg"></div>
 
-  <section id="landing-screen" class="fixed inset-0 z-[300] flex items-center justify-center">
-    <div class="landing-overlay"></div>
-    <div class="landing-panel max-w-5xl w-[92%] grid lg:grid-cols-[1.1fr_.9fr] gap-8 items-center">
-      <div>
-        <div class="eyebrow">CACON STOCK</div>
-        <h1 class="landing-title">CACON <span>Trading Journal</span></h1>
-        <p class="landing-copy">
-          Hệ thống quản trị giao dịch dành cho nhà đầu tư muốn nâng cấp kỷ luật, chất lượng ra quyết định và lưu trữ toàn bộ nhật ký lên Firebase.
-        </p>
-        <div class="flex flex-wrap gap-3 mt-6">
-          <button id="open-login-btn" class="btn-primary big-btn">Bắt đầu đăng nhập</button>
-          <button id="skip-intro-btn" class="btn-secondary big-btn">Xem nhanh tính năng</button>
-        </div>
-        <div class="landing-tags mt-6">
-          <span>Trade Quality</span>
-          <span>Journal</span>
-          <span>Radar & Watchlist</span>
-          <span>Patterns</span>
-          <span>Firebase Sync</span>
-        </div>
-      </div>
-      <div class="landing-card glass-panel p-6">
-        <div class="card-headline">Những gì web sẽ giúp bạn</div>
-        <div class="space-y-3 mt-4 text-sm text-slate-300">
-          <div class="feature-row"><i data-lucide="shield-check"></i><span>Lưu lệnh, watchlist, mẫu hình theo từng tài khoản.</span></div>
-          <div class="feature-row"><i data-lucide="line-chart"></i><span>Chấm điểm Trade Quality theo setup, market, risk, execution, discipline.</span></div>
-          <div class="feature-row"><i data-lucide="database"></i><span>Đồng bộ dữ liệu qua Firestore, mở lại là còn.</span></div>
-          <div class="feature-row"><i data-lucide="sparkles"></i><span>Giao diện trading journal hiện đại, dễ nhập liệu và dễ review.</span></div>
-        </div>
+  <section id="landing-screen" class="landing-screen">
+    <canvas id="landing-canvas"></canvas>
+    <div class="landing-content">
+      <div class="landing-badge">Welcome</div>
+      <h1>CACON Trading Journal</h1>
+      <p>Hệ thống quản lý giao dịch dành cho nhà đầu tư: ghi nhật ký, chấm điểm <b>Trade Quality</b>, quản lý Radar &amp; Watchlist, lưu mẫu hình và đồng bộ dữ liệu lên Firebase.</p>
+      <div class="landing-actions">
+        <button id="landing-login" class="btn btn-primary">Vào đăng nhập</button>
+        <button id="landing-demo" class="btn btn-secondary">Xem giao diện</button>
       </div>
     </div>
   </section>
 
-  <div id="login-modal" class="fixed inset-0 z-[320] bg-slate-950/70 backdrop-blur-md hidden items-center justify-center p-4">
-    <div class="glass-panel p-8 w-full max-w-md space-y-6 relative">
-      <button id="close-login-btn" class="absolute right-4 top-4 icon-circle"><i data-lucide="x"></i></button>
-      <div>
-        <h2 class="text-2xl font-black uppercase tracking-wide">CACON <span class="text-emerald-400">Trading Journal</span></h2>
-        <p class="text-slate-400 text-sm mt-2">Đăng nhập để đồng bộ dữ liệu lên Firebase.</p>
+  <div id="login-modal" class="overlay hidden">
+    <div class="panel auth-card">
+      <div class="flex items-center justify-between gap-4 mb-6">
+        <div>
+          <h2 class="text-2xl font-black uppercase tracking-wide">CACON <span class="text-emerald-400">Trading Journal</span></h2>
+          <p class="text-sm text-slate-400 mt-2">Đăng nhập để đồng bộ dữ liệu cá nhân lên Firebase.</p>
+        </div>
+        <button class="icon-btn" id="close-login"><i data-lucide="x"></i></button>
       </div>
       <div class="space-y-4">
-        <input type="email" id="login-email" placeholder="Email" class="field-input dark-field">
+        <input type="email" id="login-email" placeholder="Email" class="input" />
         <div class="password-wrap">
-          <input type="password" id="login-pass" placeholder="Mật khẩu" class="field-input dark-field pr-12">
-          <button type="button" id="toggle-login-pass" class="toggle-pass"><i data-lucide="eye"></i></button>
+          <input type="password" id="login-pass" placeholder="Mật khẩu" class="input" />
+          <button id="toggle-password" class="password-toggle" type="button"><i data-lucide="eye"></i></button>
         </div>
+        <button id="btn-login" class="btn btn-primary w-full">Vào hệ thống</button>
+        <div id="login-message" class="text-sm text-rose-300 min-h-[20px]"></div>
       </div>
-      <button id="login-btn" class="w-full btn-primary py-4 text-sm uppercase tracking-wide">Vào hệ thống</button>
-      <p id="login-error" class="hidden rounded-xl bg-rose-500/20 text-rose-200 px-4 py-3 text-sm"></p>
     </div>
   </div>
 
   <div class="app-shell h-screen flex flex-col">
-    <header class="h-16 border-b border-white/10 bg-black/25 backdrop-blur-xl flex items-center justify-between px-6 shrink-0 z-40">
+    <header class="header-bar">
       <div>
-        <h1 class="text-xl font-black uppercase tracking-wide">CACON <span class="text-emerald-400">Trading Journal</span></h1>
+        <div class="text-xl font-black uppercase tracking-wide">CACON <span class="text-emerald-400">Stock</span></div>
+        <div class="text-xs text-slate-400">Nhật ký giao dịch + Trade Quality + Firebase</div>
       </div>
-      <div class="flex items-center gap-3 text-sm">
-        <div id="user-chip" class="status-chip">Chưa đăng nhập</div>
-        <button id="logout-btn" class="btn-secondary px-4 py-2 text-xs uppercase hidden">Đăng xuất</button>
+      <nav class="flex flex-wrap gap-3 text-[11px] font-black uppercase">
+        <button data-tab="dashboard" class="nav-btn active">Dashboard</button>
+        <button data-tab="journal" class="nav-btn">Nhật ký</button>
+        <button data-tab="watchlist" class="nav-btn">Radar &amp; Watchlist</button>
+        <button data-tab="patterns" class="nav-btn">Mẫu hình</button>
+        <button data-tab="quality" class="nav-btn">Trade Quality</button>
+        <button data-tab="market" class="nav-btn">Thị trường</button>
+      </nav>
+      <div class="flex items-center gap-3">
+        <div class="text-right hidden md:block">
+          <div id="user-name" class="text-sm font-semibold">Guest demo</div>
+          <div id="sync-status" class="text-xs text-slate-400">Chưa đăng nhập</div>
+        </div>
+        <button id="btn-open-login" class="btn btn-secondary">Đăng nhập</button>
+        <button id="btn-logout" class="btn btn-secondary hidden">Thoát</button>
       </div>
     </header>
 
-    <div class="flex-1 min-h-0 flex">
-      <aside class="w-64 border-r border-white/10 bg-black/20 backdrop-blur-xl p-4 hidden lg:block">
-        <nav class="space-y-2">
-          <button class="nav-btn active" data-tab="dashboard"><i data-lucide="layout-dashboard"></i><span>Dashboard</span></button>
-          <button class="nav-btn" data-tab="journal"><i data-lucide="book-open"></i><span>Nhật ký</span></button>
-          <button class="nav-btn" data-tab="watchlist"><i data-lucide="radar"></i><span>Radar & Watchlist</span></button>
-          <button class="nav-btn" data-tab="patterns"><i data-lucide="shapes"></i><span>Mẫu hình</span></button>
-          <button class="nav-btn" data-tab="quality"><i data-lucide="badge-help"></i><span>Trade Quality</span></button>
-          <button class="nav-btn" data-tab="market"><i data-lucide="activity"></i><span>Thị trường</span></button>
-        </nav>
-      </aside>
-
-      <main class="flex-1 overflow-y-auto p-4 lg:p-6 space-y-6 custom-scrollbar">
-        <div class="lg:hidden flex gap-2 overflow-x-auto pb-2">
-          <button class="nav-btn active" data-tab="dashboard">Dashboard</button>
-          <button class="nav-btn" data-tab="journal">Nhật ký</button>
-          <button class="nav-btn" data-tab="watchlist">Watchlist</button>
-          <button class="nav-btn" data-tab="patterns">Mẫu hình</button>
-          <button class="nav-btn" data-tab="quality">Trade Quality</button>
-          <button class="nav-btn" data-tab="market">Thị trường</button>
+    <main class="flex-1 overflow-y-auto p-5 md:p-6 space-y-6 custom-scrollbar">
+      <section id="tab-dashboard" class="tab-content space-y-6">
+        <div class="grid md:grid-cols-4 gap-4">
+          <div class="panel kpi-card"><div class="kpi-label">Tổng lệnh</div><div id="kpi-trades" class="kpi-value">0</div></div>
+          <div class="panel kpi-card"><div class="kpi-label">Lệnh đang mở</div><div id="kpi-open" class="kpi-value">0</div></div>
+          <div class="panel kpi-card"><div class="kpi-label">Lợi nhuận ròng</div><div id="kpi-pnl" class="kpi-value text-emerald-400">0đ</div></div>
+          <div class="panel kpi-card"><div class="kpi-label">Trade Quality TB</div><div id="kpi-quality" class="kpi-value">0</div></div>
         </div>
-
-        <section id="tab-dashboard" class="tab-content space-y-6">
-          <div class="grid md:grid-cols-4 gap-4">
-            <div class="glass-panel p-5 card-kpi"><div class="kpi-label">Tổng lệnh</div><div id="kpi-trades" class="kpi-value">0</div></div>
-            <div class="glass-panel p-5 card-kpi"><div class="kpi-label">Lệnh đang mở</div><div id="kpi-open" class="kpi-value">0</div></div>
-            <div class="glass-panel p-5 card-kpi"><div class="kpi-label">PnL đã đóng</div><div id="kpi-pnl" class="kpi-value text-emerald-400">0đ</div></div>
-            <div class="glass-panel p-5 card-kpi"><div class="kpi-label">Trade Quality TB</div><div id="kpi-quality" class="kpi-value">0</div></div>
+        <div class="grid lg:grid-cols-2 gap-6">
+          <div class="panel p-5">
+            <div class="section-head"><h3>Watchlist nổi bật</h3><button class="btn btn-secondary" id="btn-add-watchlist">Thêm mã</button></div>
+            <div id="dashboard-watchlist" class="space-y-3"></div>
           </div>
-          <div class="grid xl:grid-cols-[1.1fr_.9fr] gap-6">
-            <div class="glass-panel p-6">
-              <div class="section-title">Nhật ký gần nhất</div>
-              <div id="dashboard-trade-list" class="space-y-3 mt-4"></div>
-            </div>
-            <div class="glass-panel p-6">
-              <div class="section-title">Trade Quality Guide</div>
-              <div class="space-y-3 mt-4 text-sm text-slate-300">
-                <p><b>Trade Quality</b> chấm chất lượng quyết định giao dịch, không chấm theo lãi lỗ đơn thuần.</p>
-                <div class="guide-grid">
-                  <div class="guide-pill">Setup 30</div>
-                  <div class="guide-pill">Market 20</div>
-                  <div class="guide-pill">Risk 20</div>
-                  <div class="guide-pill">Execution 20</div>
-                  <div class="guide-pill">Discipline 10</div>
-                </div>
-                <p class="text-slate-400">Dùng module Trade Quality để xem cách tính điểm chi tiết và ví dụ chấm điểm.</p>
-              </div>
-            </div>
+          <div class="panel p-5">
+            <div class="section-head"><h3>Trade Quality gần nhất</h3><button class="btn btn-secondary" data-tab-jump="quality">Mở module</button></div>
+            <div id="dashboard-quality" class="space-y-3"></div>
           </div>
-        </section>
+        </div>
+      </section>
 
-        <section id="tab-journal" class="tab-content hidden space-y-5">
-          <div class="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
-            <div>
-              <div class="section-title">Nhật ký giao dịch</div>
-              <div class="text-slate-400 text-sm mt-1">Lưu từng lệnh lên Firebase và chấm điểm Trade Quality tự động.</div>
-            </div>
-            <div class="flex flex-wrap gap-2">
-              <input id="journal-search" placeholder="Tìm mã / setup" class="field-input dark-field w-52">
-              <select id="journal-status-filter" class="field-input dark-field w-40">
-                <option value="all">Tất cả trạng thái</option>
-                <option value="open">Đang mở</option>
-                <option value="closed">Đã đóng</option>
-              </select>
-              <select id="journal-result-filter" class="field-input dark-field w-40">
-                <option value="all">Tất cả kết quả</option>
+      <section id="tab-journal" class="tab-content hidden space-y-5">
+        <div class="panel p-5">
+          <div class="section-head flex-wrap">
+            <h3>Nhật ký giao dịch</h3>
+            <div class="flex flex-wrap gap-3">
+              <input id="filter-search" class="input !w-44" placeholder="Tìm mã / setup" />
+              <select id="filter-result" class="input !w-40">
+                <option value="all">Kết quả: Tất cả</option>
                 <option value="open">Đang mở</option>
                 <option value="win">Lãi</option>
                 <option value="loss">Lỗ</option>
               </select>
-              <button id="new-trade-btn" class="btn-primary px-4 py-3">Thêm lệnh</button>
+              <select id="filter-close" class="input !w-40">
+                <option value="all">Chốt lệnh: Tất cả</option>
+                <option value="open">Chưa chốt</option>
+                <option value="closed">Đã chốt</option>
+                <option value="takeprofit">Chốt lãi</option>
+                <option value="stoploss">Chốt lỗ</option>
+              </select>
+              <button class="btn btn-primary" id="btn-add-trade">Thêm lệnh</button>
             </div>
           </div>
-          <div class="glass-panel overflow-hidden">
-            <table class="w-full text-sm min-w-[920px]">
-              <thead class="bg-black/30 text-slate-400 uppercase text-[11px] tracking-wide">
+          <div class="table-wrap">
+            <table class="w-full text-sm min-w-[980px]">
+              <thead>
                 <tr>
-                  <th class="p-4 text-left">Ngày</th>
-                  <th class="p-4 text-left">Mã</th>
-                  <th class="p-4 text-left">Setup</th>
-                  <th class="p-4 text-left">Trạng thái</th>
-                  <th class="p-4 text-left">Kết quả</th>
-                  <th class="p-4 text-right">PnL</th>
-                  <th class="p-4 text-center">TQ</th>
-                  <th class="p-4 text-right">Hành động</th>
+                  <th>Ngày</th><th>Mã</th><th>Setup</th><th>Entry</th><th>Stop</th><th>Exit</th><th>KQ</th><th>Trade Quality</th><th>PnL</th><th></th>
                 </tr>
               </thead>
-              <tbody id="journal-body" class="divide-y divide-white/5"></tbody>
+              <tbody id="journal-body"></tbody>
             </table>
           </div>
-        </section>
+        </div>
+      </section>
 
-        <section id="tab-watchlist" class="tab-content hidden space-y-5">
-          <div class="flex items-center justify-between gap-4">
-            <div>
-              <div class="section-title">Radar & Watchlist</div>
-              <div class="text-slate-400 text-sm mt-1">Lưu các mã theo dõi, nhóm radar và kế hoạch hành động lên Firebase.</div>
-            </div>
-            <button id="new-watchlist-btn" class="btn-primary px-4 py-3">Thêm mã</button>
-          </div>
-          <div id="watchlist-grid" class="grid md:grid-cols-2 xl:grid-cols-3 gap-4"></div>
-        </section>
+      <section id="tab-watchlist" class="tab-content hidden space-y-5">
+        <div class="panel p-5">
+          <div class="section-head"><h3>Radar &amp; Watchlist</h3><button class="btn btn-primary" id="btn-add-watchlist-2">Thêm mã</button></div>
+          <div id="watchlist-grid" class="grid lg:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+        </div>
+      </section>
 
-        <section id="tab-patterns" class="tab-content hidden space-y-5">
-          <div class="flex items-center justify-between gap-4">
-            <div>
-              <div class="section-title">Thư viện mẫu hình</div>
-              <div class="text-slate-400 text-sm mt-1">Lưu mẫu hình, điều kiện nền và trigger để dùng lại khi tạo lệnh.</div>
-            </div>
-            <button id="new-pattern-btn" class="btn-primary px-4 py-3">Thêm mẫu hình</button>
-          </div>
-          <div id="pattern-grid" class="grid md:grid-cols-2 xl:grid-cols-3 gap-4"></div>
-        </section>
+      <section id="tab-patterns" class="tab-content hidden space-y-5">
+        <div class="panel p-5">
+          <div class="section-head"><h3>Mẫu hình</h3><button class="btn btn-primary" id="btn-add-pattern">Tạo mẫu hình</button></div>
+          <div id="patterns-grid" class="grid lg:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+        </div>
+      </section>
 
-        <section id="tab-quality" class="tab-content hidden space-y-6">
-          <div class="grid xl:grid-cols-[1.05fr_.95fr] gap-6">
-            <div class="glass-panel p-6">
-              <div class="section-title">Module Trade Quality</div>
-              <div class="space-y-4 mt-4 text-sm text-slate-300">
-                <p><b>Trade Quality</b> là điểm đánh giá chất lượng ra quyết định giao dịch tại thời điểm vào và quản lý lệnh. Một lệnh lỗ vẫn có thể có Trade Quality cao nếu setup, market, risk và kỷ luật đều đúng.</p>
-                <div class="grid md:grid-cols-2 gap-3">
-                  <div class="quality-card"><b>1. Setup Quality — 30 điểm</b><p>Đúng mẫu hình, nền chặt, điểm mua rõ, checklist đủ.</p></div>
-                  <div class="quality-card"><b>2. Market Alignment — 20 điểm</b><p>Thị trường chung, nhóm ngành và dòng tiền ủng hộ.</p></div>
-                  <div class="quality-card"><b>3. Risk Management — 20 điểm</b><p>Có stoploss, sizing hợp lý, risk% phù hợp.</p></div>
-                  <div class="quality-card"><b>4. Execution Quality — 20 điểm</b><p>Vào đúng điểm, không FOMO, có xác nhận.</p></div>
-                  <div class="quality-card md:col-span-2"><b>5. Discipline & Psychology — 10 điểm</b><p>Giữ đúng kế hoạch, không gồng lỗ, không bán non vô kỷ luật.</p></div>
-                </div>
-                <div class="glass-soft p-4 rounded-2xl">
-                  <div class="font-bold mb-2">Xếp hạng</div>
-                  <div class="flex flex-wrap gap-2 text-xs uppercase">
-                    <span class="table-chip green">90–100: Elite</span>
-                    <span class="table-chip sky">80–89: A</span>
-                    <span class="table-chip amber">70–79: B</span>
-                    <span class="table-chip gray">60–69: C</span>
-                    <span class="table-chip rose">&lt;60: D</span>
-                  </div>
-                </div>
-              </div>
+      <section id="tab-quality" class="tab-content hidden space-y-5">
+        <div class="grid lg:grid-cols-[0.95fr_1.05fr] gap-6">
+          <div class="panel p-5">
+            <div class="section-head"><h3>Định nghĩa Trade Quality</h3></div>
+            <p class="text-sm text-slate-300 leading-7 mb-4">Trade Quality là điểm đánh giá chất lượng quyết định giao dịch tại thời điểm vào lệnh và quản trị lệnh, không phụ thuộc hoàn toàn vào việc lệnh đó lãi hay lỗ.</p>
+            <div class="space-y-3 text-sm">
+              <div class="quality-row"><span>Setup</span><strong>30 điểm</strong></div>
+              <div class="quality-row"><span>Market Alignment</span><strong>20 điểm</strong></div>
+              <div class="quality-row"><span>Risk Management</span><strong>20 điểm</strong></div>
+              <div class="quality-row"><span>Execution</span><strong>20 điểm</strong></div>
+              <div class="quality-row"><span>Discipline</span><strong>10 điểm</strong></div>
             </div>
-            <div class="glass-panel p-6">
-              <div class="section-title">Máy tính Trade Quality</div>
-              <div class="space-y-3 mt-4">
-                <label class="field-block"><span>Checklist setup đạt được (0–5)</span><input id="quality-checklist-count" type="number" min="0" max="5" value="3" class="field-input dark-field"></label>
-                <label class="field-block"><span>Bối cảnh thị trường</span><select id="quality-market" class="field-input dark-field"><option value="positive">Tích cực</option><option value="neutral">Trung tính</option><option value="negative">Tiêu cực</option></select></label>
-                <label class="field-block"><span>Có stoploss rõ ràng?</span><select id="quality-risk" class="field-input dark-field"><option value="good">Có, rõ ràng</option><option value="ok">Có nhưng chưa tối ưu</option><option value="bad">Không rõ</option></select></label>
-                <label class="field-block"><span>Cách thực thi</span><select id="quality-execution" class="field-input dark-field"><option value="great">Đúng điểm</option><option value="ok">Tạm ổn</option><option value="bad">FOMO / vào sớm</option></select></label>
-                <label class="field-block"><span>Kỷ luật</span><select id="quality-discipline" class="field-input dark-field"><option value="great">Bám plan tốt</option><option value="ok">Có lỗi nhỏ</option><option value="bad">Phá kỷ luật</option></select></label>
-              </div>
-              <div id="quality-result-box" class="mt-5 glass-soft rounded-2xl p-5"></div>
-            </div>
+            <div class="hint-box mt-4">Lệnh lãi chưa chắc là lệnh chất lượng cao. Lệnh lỗ vẫn có thể là lệnh chất lượng cao nếu đúng setup, đúng market và đúng risk.</div>
           </div>
-        </section>
+          <div class="panel p-5">
+            <div class="section-head"><h3>Liên kết với Nhật ký</h3></div>
+            <div id="quality-current" class="space-y-4"></div>
+          </div>
+        </div>
+      </section>
 
-        <section id="tab-market" class="tab-content hidden space-y-5">
-          <div class="glass-panel p-6 max-w-3xl">
-            <div class="section-title">Thị trường</div>
-            <div class="grid md:grid-cols-2 gap-4 mt-4">
-              <label class="field-block"><span>Số ngày phân phối</span><input type="number" id="market-dist-days" value="0" class="field-input dark-field"></label>
-              <label class="field-block"><span>Thái độ thị trường</span><select id="market-tone" class="field-input dark-field"><option>Tích cực</option><option>Trung tính</option><option>Tiêu cực</option></select></label>
-              <label class="field-block md:col-span-2"><span>Ghi chú</span><textarea id="market-note" class="field-input dark-field min-h-[120px]"></textarea></label>
-            </div>
-            <div class="mt-4 flex justify-end"><button id="save-market-btn" class="btn-primary px-4 py-3">Lưu thị trường</button></div>
-          </div>
-        </section>
-      </main>
-    </div>
-  </div>
-
-  <div id="trade-modal" class="modal hidden">
-    <div class="modal-card max-w-6xl">
-      <div class="modal-head">
-        <h3 id="trade-modal-title">Tạo lệnh mới</h3>
-        <button class="icon-circle" data-close="trade-modal"><i data-lucide="x"></i></button>
-      </div>
-      <div class="grid xl:grid-cols-[1.05fr_.95fr] gap-5">
-        <div class="space-y-4">
-          <div class="grid md:grid-cols-3 gap-4">
-            <label class="field-block"><span>Mã</span><input id="trade-ticker" class="field-input"></label>
-            <label class="field-block"><span>Ngày vào</span><input id="trade-date" type="date" class="field-input"></label>
-            <label class="field-block"><span>Setup</span><input id="trade-setup" class="field-input" placeholder="VCP"></label>
-          </div>
-          <div class="grid md:grid-cols-4 gap-4">
-            <label class="field-block"><span>Giá vào</span><input id="trade-entry" type="number" class="field-input"></label>
-            <label class="field-block"><span>Stoploss</span><input id="trade-stop" type="number" class="field-input"></label>
-            <label class="field-block"><span>Giá ra</span><input id="trade-exit" type="number" class="field-input"></label>
-            <label class="field-block"><span>Khối lượng</span><input id="trade-qty" type="number" class="field-input"></label>
-          </div>
-          <div class="grid md:grid-cols-4 gap-4">
-            <label class="field-block"><span>Trạng thái</span><select id="trade-status" class="field-input"><option value="open">Đang mở</option><option value="closed">Đã đóng</option></select></label>
-            <label class="field-block"><span>Kết quả</span><select id="trade-result" class="field-input"><option value="open">Đang mở</option><option value="win">Lãi</option><option value="loss">Lỗ</option></select></label>
-            <label class="field-block"><span>Market Pulse</span><select id="trade-market-pulse" class="field-input"><option>Tích cực</option><option>Trung tính</option><option>Tiêu cực</option></select></label>
-            <label class="field-block"><span>Cảm xúc</span><select id="trade-emotion" class="field-input"><option>Tự tin</option><option>Bình tĩnh</option><option>Sợ hãi</option><option>Tham lam</option></select></label>
-          </div>
+      <section id="tab-market" class="tab-content hidden space-y-5">
+        <div class="panel p-5 max-w-3xl">
+          <div class="section-head"><h3>Thị trường</h3><button id="btn-save-market" class="btn btn-primary">Lưu thị trường</button></div>
           <div class="grid md:grid-cols-2 gap-4">
-            <label class="field-block"><span>Lỗi chính</span><select id="trade-mistake" class="field-input"><option>Không</option><option>FOMO</option><option>Gồng lỗ</option><option>Bán non</option></select></label>
-            <label class="field-block"><span>Risk %</span><input id="trade-risk" type="number" step="0.1" class="field-input" value="1"></label>
+            <label class="field-block"><span>Số ngày phân phối</span><input id="market-dist-days" type="number" class="input" value="0" /></label>
+            <label class="field-block"><span>Tâm lý thị trường</span><input id="market-sentiment" class="input" placeholder="Tích cực / Trung tính / Tiêu cực" /></label>
+            <label class="field-block md:col-span-2"><span>Nhóm dẫn dắt</span><input id="market-leaders" class="input" placeholder="Chứng khoán, Công nghệ" /></label>
+            <label class="field-block md:col-span-2"><span>Ghi chú</span><textarea id="market-note" class="input min-h-[110px]"></textarea></label>
           </div>
-          <label class="field-block"><span>Checklist setup (mỗi dòng một ý)</span><textarea id="trade-checklist" class="field-input min-h-[110px]" placeholder="Xu hướng tăng rõ&#10;Volume xác nhận&#10;Thị trường ủng hộ"></textarea></label>
-          <label class="field-block"><span>Ghi chú</span><textarea id="trade-note" class="field-input min-h-[110px]"></textarea></label>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="trade-modal" class="overlay hidden">
+    <div class="panel modal-card">
+      <div class="section-head mb-5"><h3 id="trade-modal-title">Thêm lệnh</h3><button class="icon-btn" data-close="trade-modal"><i data-lucide="x"></i></button></div>
+      <div class="grid lg:grid-cols-2 gap-5">
+        <div class="space-y-4">
+          <div class="grid md:grid-cols-2 gap-4">
+            <label class="field-block"><span>Ngày</span><input id="trade-date" type="date" class="input" /></label>
+            <label class="field-block"><span>Mã</span><input id="trade-ticker" class="input" /></label>
+            <label class="field-block"><span>Chiến lược</span><input id="trade-strategy" class="input" placeholder="Mark Minervini" /></label>
+            <label class="field-block"><span>Setup</span><input id="trade-setup" class="input" placeholder="VCP" /></label>
+            <label class="field-block"><span>Entry</span><input id="trade-entry" type="number" step="0.01" class="input" /></label>
+            <label class="field-block"><span>Stop</span><input id="trade-stop" type="number" step="0.01" class="input" /></label>
+            <label class="field-block"><span>Exit</span><input id="trade-exit" type="number" step="0.01" class="input" /></label>
+            <label class="field-block"><span>Số lượng</span><input id="trade-qty" type="number" class="input" /></label>
+            <label class="field-block"><span>Market pulse</span><input id="trade-market-pulse" class="input" placeholder="Tích cực" /></label>
+            <label class="field-block"><span>Risk %</span><input id="trade-risk-pct" type="number" step="0.1" class="input" value="1" /></label>
+            <label class="field-block"><span>Kết quả</span>
+              <select id="trade-result" class="input">
+                <option value="open">Đang mở</option>
+                <option value="win">Lãi</option>
+                <option value="loss">Lỗ</option>
+              </select>
+            </label>
+            <label class="field-block"><span>Sai lầm</span>
+              <select id="trade-mistake" class="input">
+                <option>Không</option><option>FOMO</option><option>Gồng lỗ</option><option>Bán non</option>
+              </select>
+            </label>
+          </div>
+          <label class="field-block"><span>Checklist (mỗi dòng một điều kiện)</span><textarea id="trade-checklist" class="input min-h-[110px]"></textarea></label>
+          <label class="field-block"><span>Ghi chú</span><textarea id="trade-note" class="input min-h-[100px]"></textarea></label>
         </div>
         <div class="space-y-4">
-          <div class="glass-soft rounded-2xl p-5">
-            <div class="font-bold text-lg">Trade Quality tự động</div>
-            <div class="text-slate-400 text-sm mt-1">Điểm được tính theo setup, market, risk, execution, discipline.</div>
-            <div id="trade-quality-breakdown" class="mt-4 space-y-3"></div>
-            <div class="mt-4 flex items-center justify-between rounded-2xl bg-emerald-500/10 border border-emerald-500/20 px-4 py-3">
-              <div>
-                <div class="text-xs uppercase text-slate-400">Trade Quality</div>
-                <div id="trade-quality-total" class="text-3xl font-black text-emerald-300">0</div>
-              </div>
-              <div id="trade-quality-rank" class="table-chip sky">B</div>
-            </div>
+          <div class="section-head !mb-2"><h3 class="text-lg">Trade Quality tự động</h3></div>
+          <div class="space-y-3">
+            <div class="quality-row"><span>Setup</span><strong id="tq-setup">0/30</strong></div>
+            <div class="quality-row"><span>Market</span><strong id="tq-market">0/20</strong></div>
+            <div class="quality-row"><span>Risk</span><strong id="tq-risk">0/20</strong></div>
+            <div class="quality-row"><span>Execution</span><strong id="tq-execution">0/20</strong></div>
+            <div class="quality-row"><span>Discipline</span><strong id="tq-discipline">0/10</strong></div>
+            <div class="quality-row"><span>Tổng điểm</span><strong id="tq-total">0/100</strong></div>
+            <div class="quality-row"><span>Xếp hạng</span><strong id="tq-rank">D</strong></div>
           </div>
-          <div class="glass-soft rounded-2xl p-5 text-sm text-slate-300">
-            <div class="font-bold mb-2">Cách hiểu điểm</div>
-            <p>Lệnh lãi chưa chắc chất lượng cao. Lệnh lỗ vẫn có thể là lệnh chất lượng cao nếu vào đúng hệ thống và đúng kỷ luật.</p>
-          </div>
+          <div class="hint-box">Khi chọn <b>Lãi</b> hoặc <b>Lỗ</b>, hệ thống tự xem là lệnh đã chốt. Khi chọn <b>Đang mở</b>, hệ thống sẽ bỏ chốt lệnh.</div>
         </div>
       </div>
-      <div class="modal-actions">
-        <button class="btn-secondary px-5 py-3" data-close="trade-modal">Hủy</button>
-        <button id="save-trade-btn" class="btn-primary px-5 py-3">Lưu lệnh</button>
-      </div>
+      <div class="flex justify-end gap-3 mt-6"><button class="btn btn-secondary" data-close="trade-modal">Hủy</button><button id="btn-save-trade" class="btn btn-primary">Lưu lệnh</button></div>
     </div>
   </div>
 
-  <div id="watchlist-modal" class="modal hidden">
-    <div class="modal-card max-w-2xl">
-      <div class="modal-head"><h3 id="watchlist-modal-title">Thêm mã theo dõi</h3><button class="icon-circle" data-close="watchlist-modal"><i data-lucide="x"></i></button></div>
+  <div id="watchlist-modal" class="overlay hidden">
+    <div class="panel modal-card max-w-2xl">
+      <div class="section-head mb-5"><h3 id="watchlist-modal-title">Thêm Watchlist</h3><button class="icon-btn" data-close="watchlist-modal"><i data-lucide="x"></i></button></div>
       <div class="grid md:grid-cols-2 gap-4">
-        <label class="field-block"><span>Mã</span><input id="watch-symbol" class="field-input"></label>
-        <label class="field-block"><span>Nhóm</span><select id="watch-group" class="field-input"><option value="near">Gần điểm mua</option><option value="watch">Theo dõi</option><option value="long">Dài hạn</option></select></label>
-        <label class="field-block"><span>Setup</span><input id="watch-setup" class="field-input"></label>
-        <label class="field-block"><span>Buy zone</span><input id="watch-zone" class="field-input"></label>
-        <label class="field-block md:col-span-2"><span>Kế hoạch</span><textarea id="watch-plan" class="field-input min-h-[110px]"></textarea></label>
+        <label class="field-block"><span>Mã</span><input id="watch-ticker" class="input" /></label>
+        <label class="field-block"><span>Nhóm</span>
+          <select id="watch-group" class="input"><option value="near">Gần điểm mua</option><option value="watch">Theo dõi</option><option value="long">Dài hạn</option></select>
+        </label>
+        <label class="field-block"><span>Pattern</span><input id="watch-pattern" class="input" /></label>
+        <label class="field-block"><span>Trạng thái</span><input id="watch-status" class="input" placeholder="Theo dõi / Gần điểm mua" /></label>
+        <label class="field-block md:col-span-2"><span>Kế hoạch</span><textarea id="watch-plan" class="input min-h-[110px]"></textarea></label>
       </div>
-      <div class="modal-actions"><button class="btn-secondary px-5 py-3" data-close="watchlist-modal">Hủy</button><button id="save-watchlist-btn" class="btn-primary px-5 py-3">Lưu mã</button></div>
+      <div class="flex justify-end gap-3 mt-6"><button class="btn btn-secondary" data-close="watchlist-modal">Hủy</button><button id="btn-save-watchlist" class="btn btn-primary">Lưu watchlist</button></div>
     </div>
   </div>
 
-  <div id="pattern-modal" class="modal hidden">
-    <div class="modal-card max-w-3xl">
-      <div class="modal-head"><h3 id="pattern-modal-title">Thêm mẫu hình</h3><button class="icon-circle" data-close="pattern-modal"><i data-lucide="x"></i></button></div>
+  <div id="pattern-modal" class="overlay hidden">
+    <div class="panel modal-card max-w-3xl">
+      <div class="section-head mb-5"><h3 id="pattern-modal-title">Tạo mẫu hình</h3><button class="icon-btn" data-close="pattern-modal"><i data-lucide="x"></i></button></div>
       <div class="grid md:grid-cols-2 gap-4">
-        <label class="field-block"><span>Tên mẫu hình</span><input id="pattern-name" class="field-input"></label>
-        <label class="field-block"><span>Chiến lược</span><input id="pattern-strategy" class="field-input"></label>
-        <label class="field-block md:col-span-2"><span>Mô tả</span><textarea id="pattern-description" class="field-input min-h-[100px]"></textarea></label>
-        <label class="field-block"><span>Điều kiện nền (mỗi dòng một ý)</span><textarea id="pattern-conditions" class="field-input min-h-[120px]"></textarea></label>
-        <label class="field-block"><span>Điều kiện kích hoạt (mỗi dòng một ý)</span><textarea id="pattern-triggers" class="field-input min-h-[120px]"></textarea></label>
+        <label class="field-block"><span>Tên mẫu hình</span><input id="pattern-name" class="input" /></label>
+        <label class="field-block"><span>Chiến lược</span><input id="pattern-strategy" class="input" /></label>
+        <label class="field-block md:col-span-2"><span>Mô tả</span><textarea id="pattern-description" class="input min-h-[90px]"></textarea></label>
+        <label class="field-block"><span>Điều kiện nền</span><textarea id="pattern-conditions" class="input min-h-[110px]"></textarea></label>
+        <label class="field-block"><span>Điều kiện kích hoạt</span><textarea id="pattern-triggers" class="input min-h-[110px]"></textarea></label>
       </div>
-      <div class="modal-actions"><button class="btn-secondary px-5 py-3" data-close="pattern-modal">Hủy</button><button id="save-pattern-btn" class="btn-primary px-5 py-3">Lưu mẫu hình</button></div>
+      <div class="flex justify-end gap-3 mt-6"><button class="btn btn-secondary" data-close="pattern-modal">Hủy</button><button id="btn-save-pattern" class="btn btn-primary">Lưu mẫu hình</button></div>
     </div>
   </div>
 

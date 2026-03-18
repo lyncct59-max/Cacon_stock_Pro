@@ -1,783 +1,1124 @@
-window.onload = () => {
-  lucide.createIcons();
-  App.init();
+const STORAGE_KEY = 'cacon-trading-supabase-cache';
+
+const SupabaseService = {
+  get client() {
+    return window.supabaseClient || null;
+  },
+
+  get ready() {
+    return !!this.client;
+  },
+
+  async login(email, password) {
+    const { data, error } = await this.client.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    return data;
+  },
+
+  async register(name, email, password) {
+    const { data, error } = await this.client.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { full_name: name || email.split('@')[0] }
+      }
+    });
+    if (error) throw error;
+    if (data?.user) await this.ensureProfile(data.user, name);
+    return data;
+  },
+
+  async resetPassword(email) {
+    const redirectTo = window.location.origin + window.location.pathname;
+    const { data, error } = await this.client.auth.resetPasswordForEmail(email, { redirectTo });
+    if (error) throw error;
+    return data;
+  },
+
+  async logout() {
+    const { error } = await this.client.auth.signOut();
+    if (error) throw error;
+  },
+
+  async ensureProfile(user, forcedName = '') {
+    if (!user) return;
+    const profile = {
+      id: user.id,
+      email: user.email || '',
+      name: forcedName || user.user_metadata?.full_name || user.email?.split('@')[0] || 'Trader'
+    };
+    const { error } = await this.client.from('profiles').upsert(profile, { onConflict: 'id' });
+    if (error) throw error;
+  },
+
+  async loadJournal(uid) {
+    const { data, error } = await this.client.from('trading_journals').select('payload').eq('user_id', uid).maybeSingle();
+    if (error) throw error;
+    return data?.payload || null;
+  },
+
+  async saveJournal(uid, payload) {
+    const { error } = await this.client.from('trading_journals').upsert({ user_id: uid, payload }, { onConflict: 'user_id' });
+    if (error) throw error;
+  },
+
+  async uploadFile(uid, file, folder) {
+    const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const path = `${uid}/${folder}/${safeName}`;
+    const { error } = await this.client.storage.from('cacon-files').upload(path, file, { upsert: false, cacheControl: '3600' });
+    if (error) throw error;
+    const { data } = this.client.storage.from('cacon-files').getPublicUrl(path);
+    return data.publicUrl;
+  }
 };
 
 const App = {
   state: {
-    user: null,
-    role: 'user',
-    currentTab: 'dashboard',
-    introDismissed: false,
+    theme: localStorage.getItem('cacon-theme') || 'light',
+    activeTab: 'dashboard',
+    selectedTradeId: null,
+    editingTradeId: null,
+    editingWatchlistId: null,
     editingPatternId: null,
-    editingWatchId: null,
-    editingJournalId: null,
-    selectedJournalId: null,
-    breathTimer: null,
-    unsubscribers: []
-  },
-  data: {
-    patterns: [],
-    watchlist: [],
-    journal: [],
-    market: { distDays: 4, riskMode: 'Tỷ cổ phiếu 50%', strongSector: 'Chứng khoán · Công nghệ', note: 'Ưu tiên A setup, không mua đuổi.' },
-    psychology: { energy: 7, calm: 8, fomo: 4, confidence: 6, checklist: '' },
-    review: { week: '', month: '' }
+    authMode: 'login',
+    user: null,
+    saveTimer: null,
+    isSaving: false,
+    breathing: { timer: null }
   },
 
-  init() {
+  demo() {
+    return {
+      accountSize: 200000000,
+      riskPercent: 1,
+      patterns: [
+        {
+          id: 'p-vcp',
+          name: 'VCP',
+          strategy: 'Mark Minervini',
+          description: 'Mẫu hình co hẹp biên độ sau xu hướng tăng tốt, volume giảm dần rồi breakout.',
+          conditions: ['Xu hướng trước đó tăng mạnh', 'Biên độ co hẹp dần', 'Volume giảm dần trong nền'],
+          triggers: ['Breakout khỏi nền', 'Volume xác nhận', 'Thị trường ủng hộ'],
+          image: ''
+        },
+        {
+          id: 'p-tightflag',
+          name: 'Tight Flag',
+          strategy: 'CANSLIM',
+          description: 'Sau nhịp tăng mạnh, giá nghỉ ngắn với cờ hẹp và thanh khoản giảm.',
+          conditions: ['Có thrust mạnh trước đó', 'Lá cờ hẹp', 'Không gãy MA ngắn hạn'],
+          triggers: ['Vượt đỉnh lá cờ', 'Volume cải thiện', 'Nhóm ngành đồng thuận'],
+          image: ''
+        }
+      ],
+      watchlists: [
+        { id: 'w1', symbol: 'FPT', group: 'near', patternId: 'p-vcp', buyZone: '128 - 132', risk: 'Thấp', status: 'Gần điểm mua', plan: 'Canh breakout nền chặt với volume xác nhận.', sector: 'Công nghệ' },
+        { id: 'w2', symbol: 'DGC', group: 'long', patternId: 'p-tightflag', buyZone: '108 - 112', risk: 'Trung bình', status: 'Dài hạn', plan: 'Theo dõi nền tuần và gia tăng ở nhịp co hẹp.', sector: 'Hóa chất' },
+        { id: 'w3', symbol: 'SSI', group: 'watch', patternId: 'p-vcp', buyZone: '39 - 40', risk: 'Trung bình', status: 'Theo dõi', plan: 'Chờ thêm xác nhận từ thị trường chung.', sector: 'Chứng khoán' }
+      ],
+      trades: [
+        {
+          id: 't1', symbol: 'FPT', sector: 'Công nghệ', strategy: 'Mark Minervini', setup: 'VCP', patternId: 'p-vcp',
+          entryDate: '2026-03-03', exitDate: '2026-03-10', entry: 128.5, stop: 123, exit: 137.8, qty: 500, riskPct: 1,
+          status: 'closed', result: 'win', emotion: 'Tự tin', mistake: 'Không', score: 89, marketPulse: 'Tích cực',
+          note: 'Breakout đẹp, volume tăng, nhóm công nghệ dẫn dắt.', checklist: ['Xu hướng nền chặt', 'Volume bùng nổ', 'RS mạnh'], theoryImage: '', actualImage: ''
+        },
+        {
+          id: 't2', symbol: 'HPG', sector: 'Thép', strategy: 'Price Action', setup: 'Breakout nền giá', patternId: '',
+          entryDate: '2026-03-05', exitDate: '2026-03-12', entry: 31.2, stop: 29.8, exit: 30.1, qty: 2000, riskPct: 1,
+          status: 'closed', result: 'loss', emotion: 'Tham lam', mistake: 'Gồng lỗ', score: 54, marketPulse: 'Trung tính',
+          note: 'Mua sớm khi thị trường chưa xác nhận.', checklist: ['Có nền giá', 'Chưa đủ volume'], theoryImage: '', actualImage: ''
+        },
+        {
+          id: 't3', symbol: 'DGC', sector: 'Hóa chất', strategy: 'CANSLIM', setup: 'Tight Flag', patternId: 'p-tightflag',
+          entryDate: '2026-03-07', exitDate: '', entry: 112, stop: 108.5, exit: null, qty: 400, riskPct: 0.8,
+          status: 'open', result: 'open', emotion: 'Sợ hãi', mistake: 'Bán non', score: 76, marketPulse: 'Tích cực',
+          note: 'Đang giữ, theo dõi phản ứng quanh MA10.', checklist: ['Nền chặt', 'Giữ stop rõ ràng'], theoryImage: '', actualImage: ''
+        }
+      ],
+      market: { distDays: 2, sentiment: 'Tích cực', sectors: 'Chứng khoán, Công nghệ', note: 'Có thể giải ngân thăm dò với setup mạnh.' },
+      mindset: { energy: 7, calm: 8, fomo: 4, confidence: 6, preflight: 'Kiểm tra market pulse, chỉ chọn A/B setup, không mua đuổi quá 2%.', breathIn: 4, breathHold: 7, breathOut: 8 },
+      review: { weekly: 'Tuần này kiên nhẫn chờ setup tốt hơn.', monthly: 'Tháng này cần giảm số lệnh vào sớm.' }
+    };
+  },
+
+  async init() {
+    this.data = this.loadLocalCache();
+    this.recomputeTrades();
+    this.applyTheme(this.state.theme);
+    this.bindEvents();
+    this.renderAll();
+    AuthUI.switch('login');
+    this.setSyncStatus('Chưa đăng nhập');
     this.initIntro();
-    this.bindAuth();
-    this.seedPlaceholders();
-    this.switchTab('dashboard');
+    this.lockApp(true);
+
+    if (SupabaseService.ready) {
+      auth.onAuthStateChanged(async (user) => {
+        try {
+          this.state.user = user || null;
+          if (!user) {
+            this.lockApp(true);
+            this.setUserInfo(null);
+            this.setSyncStatus('Chưa đăng nhập');
+    this.initIntro();
+            return;
+          }
+          this.lockApp(false);
+          this.setUserInfo(user);
+          this.setSyncStatus('Đang tải Supabase...');
+          await SupabaseService.ensureProfile(user);
+          const cloudData = await SupabaseService.loadJournal(user.id);
+          this.data = cloudData || this.demo();
+          this.recomputeTrades();
+          this.saveLocalCache();
+          this.renderAll();
+          this.setSyncStatus('Đã đồng bộ Supabase');
+        } catch (error) {
+          console.error(error);
+          this.showAuthMessage(error.message || 'Không tải được dữ liệu Supabase.', true);
+          this.setSyncStatus('Lỗi đồng bộ');
+        }
+      });
+    } else {
+      this.showAuthMessage('Supabase chưa được khởi tạo đúng trong supabase_config.js.', true);
+    }
+
+    lucide.createIcons();
   },
 
   initIntro() {
-    const screen = document.getElementById('intro-screen');
+    const overlay = document.getElementById('intro-overlay');
     const canvas = document.getElementById('intro-canvas');
+    const skipBtn = document.getElementById('intro-skip');
+    if (!overlay || !canvas) return;
+
     const ctx = canvas.getContext('2d');
     const pointer = { x: window.innerWidth * 0.55, y: window.innerHeight * 0.5 };
-    const resize = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-    };
-    resize();
-    window.addEventListener('resize', resize);
-    window.addEventListener('mousemove', (e) => {
-      pointer.x = e.clientX;
-      pointer.y = e.clientY;
+    const DPR = Math.max(1, window.devicePixelRatio || 1);
+    const fish = [];
+    const makeFish = (type, i) => ({
+      type,
+      x: Math.random() * window.innerWidth,
+      y: (i + 1) * (window.innerHeight / 9),
+      vx: type === 'child' ? 0 : 0.35 + Math.random() * 0.35,
+      amp: 8 + Math.random() * 10,
+      phase: Math.random() * Math.PI * 2,
+      size: type === 'child' ? 1.2 : 1.8 + Math.random() * 0.8,
+      hue: type === 'child' ? 160 : 0
     });
 
-    const sharks = Array.from({ length: 28 }, (_, i) => ({
-      x: Math.random() * canvas.width,
-      y: Math.random() * canvas.height,
-      size: 20 + Math.random() * 18,
-      speed: 0.25 + Math.random() * 0.55,
-      drift: Math.random() * Math.PI * 2,
-      opacity: 0.16 + Math.random() * 0.16
-    }));
-    const fish = { x: canvas.width * 0.5, y: canvas.height * 0.5, size: 28, vx: 0, vy: 0 };
+    for (let i = 0; i < 8; i++) fish.push(makeFish('shark', i));
+    fish.push({ type: 'child', x: window.innerWidth * 0.35, y: window.innerHeight * 0.52, vx: 0, amp: 12, phase: 0, size: 1.15, hue: 160 });
 
-    const drawFish = (x, y, size, color, thin = false, glow = false) => {
+    const resize = () => {
+      canvas.width = Math.floor(window.innerWidth * DPR);
+      canvas.height = Math.floor(window.innerHeight * DPR);
+      canvas.style.width = window.innerWidth + 'px';
+      canvas.style.height = window.innerHeight + 'px';
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    };
+
+    const drawFish = (f) => {
       ctx.save();
-      ctx.translate(x, y);
-      ctx.lineWidth = thin ? 1.6 : 2.6;
-      ctx.strokeStyle = color;
-      ctx.fillStyle = thin ? 'transparent' : color;
-      if (glow) {
-        ctx.shadowBlur = 16;
-        ctx.shadowColor = color;
-      }
+      ctx.translate(f.x, f.y);
+      const dx = f.type === 'child' ? pointer.x - f.x : f.vx * 140;
+      const dy = f.type === 'child' ? pointer.y - f.y : Math.sin(f.phase) * 14;
+      ctx.rotate(Math.atan2(dy, dx));
+      ctx.scale(f.size, f.size);
+      ctx.lineWidth = f.type === 'child' ? 2.1 : 1.3;
+      ctx.strokeStyle = f.type === 'child' ? 'rgba(76,255,196,.95)' : 'rgba(215,235,255,.35)';
+      ctx.shadowBlur = f.type === 'child' ? 24 : 0;
+      ctx.shadowColor = f.type === 'child' ? 'rgba(76,255,196,.7)' : 'transparent';
       ctx.beginPath();
-      ctx.moveTo(-size * 0.9, 0);
-      ctx.quadraticCurveTo(-size * 0.25, -size * 0.7, size * 0.55, 0);
-      ctx.quadraticCurveTo(-size * 0.25, size * 0.7, -size * 0.9, 0);
+      ctx.moveTo(-26, 0);
+      ctx.quadraticCurveTo(-6, -16, 18, -10);
+      ctx.quadraticCurveTo(34, -4, 42, 0);
+      ctx.quadraticCurveTo(34, 4, 18, 10);
+      ctx.quadraticCurveTo(-6, 16, -26, 0);
+      ctx.moveTo(-26, 0);
+      ctx.lineTo(-40, -12);
+      ctx.moveTo(-26, 0);
+      ctx.lineTo(-40, 12);
+      ctx.moveTo(-2, -2);
+      ctx.arc(16, -2, 1.2, 0, Math.PI * 2);
       ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(-size * 0.9, 0);
-      ctx.lineTo(-size * 1.25, -size * 0.45);
-      ctx.lineTo(-size * 1.22, size * 0.45);
-      ctx.closePath();
-      thin ? ctx.stroke() : ctx.fill();
-      ctx.beginPath();
-      ctx.arc(size * 0.24, -size * 0.08, thin ? 1.5 : 2.5, 0, Math.PI * 2);
-      thin ? ctx.stroke() : ctx.fill();
       ctx.restore();
     };
 
-    const loop = () => {
-      if (this.state.introDismissed) return;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = 'rgba(12, 74, 110, 0.08)';
-      for (let i = 0; i < 60; i++) {
-        ctx.beginPath();
-        ctx.arc((i * 137) % canvas.width, (i * 97) % canvas.height, 1.1, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      sharks.forEach((s, idx) => {
-        s.x += Math.cos(s.drift) * s.speed;
-        s.y += Math.sin(s.drift * 0.7) * s.speed * 0.6;
-        s.drift += 0.002 + idx * 0.00001;
-        if (s.x > canvas.width + 40) s.x = -40;
-        if (s.x < -40) s.x = canvas.width + 40;
-        if (s.y > canvas.height + 30) s.y = -30;
-        if (s.y < -30) s.y = canvas.height + 30;
-        drawFish(s.x, s.y, s.size, `rgba(216,240,255,${s.opacity})`, true, false);
+    let raf = 0;
+    const render = () => {
+      ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      const g = ctx.createLinearGradient(0, 0, 0, window.innerHeight);
+      g.addColorStop(0, 'rgba(2, 6, 23, .95)');
+      g.addColorStop(.55, 'rgba(6, 25, 50, .92)');
+      g.addColorStop(1, 'rgba(0, 82, 115, .88)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+      fish.forEach((f, idx) => {
+        f.phase += 0.02 + idx * 0.001;
+        if (f.type === 'child') {
+          f.x += (pointer.x - f.x) * 0.045;
+          f.y += (pointer.y - f.y) * 0.04;
+        } else {
+          f.x += f.vx;
+          f.y += Math.sin(f.phase) * 0.35;
+          if (f.x > window.innerWidth + 80) f.x = -80;
+        }
+        drawFish(f);
       });
-      fish.vx += (pointer.x - fish.x) * 0.012;
-      fish.vy += (pointer.y - fish.y) * 0.012;
-      fish.vx *= 0.88;
-      fish.vy *= 0.88;
-      fish.x += fish.vx;
-      fish.y += fish.vy;
-      drawFish(fish.x, fish.y, fish.size, '#62ffe1', false, true);
-      requestAnimationFrame(loop);
+      raf = requestAnimationFrame(render);
     };
-    requestAnimationFrame(loop);
-    setTimeout(() => this.dismissIntro(), 4200);
-  },
 
-  dismissIntro() {
-    if (this.state.introDismissed) return;
-    this.state.introDismissed = true;
-    document.getElementById('intro-screen').classList.add('hide');
-    setTimeout(() => document.getElementById('intro-screen')?.remove(), 650);
-  },
-
-  bindAuth() {
-    auth.onAuthStateChanged(async (user) => {
-      this.clearUnsubs();
-      if (!user) {
-        this.state.user = null;
-        document.getElementById('login-modal').classList.remove('hidden');
-        this.updateUserChip();
-        return;
-      }
-      this.state.user = user;
-      document.getElementById('login-modal').classList.add('hidden');
-      await this.ensureUserProfile(user);
-      await checkAdminRole(user.uid);
-      this.state.role = userRole || 'user';
-      this.subscribeAll(user.uid);
-      this.updateUserChip();
+    resize();
+    render();
+    window.addEventListener('resize', resize);
+    overlay.addEventListener('pointermove', (e) => {
+      pointer.x = e.clientX;
+      pointer.y = e.clientY;
     });
-  },
-
-  clearUnsubs() {
-    this.state.unsubscribers.forEach(fn => { try { fn(); } catch(e) {} });
-    this.state.unsubscribers = [];
-  },
-
-  async ensureUserProfile(user) {
-    const ref = db.collection('users').doc(user.uid);
-    const snap = await ref.get();
-    if (!snap.exists) {
-      await ref.set({ uid: user.uid, email: user.email || '', name: user.email?.split('@')[0] || 'User', role: 'user', createdAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
-    }
-  },
-
-  subscribeAll(uid) {
-    const own = (col, handler, orderField = null) => {
-      let q = db.collection(col).where('userId', '==', uid);
-      if (orderField) q = q.orderBy(orderField, 'desc');
-      const unsub = q.onSnapshot(s => handler(s.docs.map(d => ({ id: d.id, ...d.data() }))));
-      this.state.unsubscribers.push(unsub);
+    const closeIntro = () => {
+      overlay.classList.add('hidden');
+      cancelAnimationFrame(raf);
     };
-    own('patterns', data => { this.data.patterns = data; this.populatePatternSelects(); this.renderPatterns(); this.renderScan(); this.renderJournalCompare(); }, 'updatedAt');
-    own('watchlist', data => { this.data.watchlist = data; this.renderScan(); this.renderDashboard(); }, 'updatedAt');
-    own('journal', data => { this.data.journal = data; if (!this.state.selectedJournalId && data[0]) this.state.selectedJournalId = data[0].id; this.renderJournalTable(); this.renderDashboard(); this.renderReview(); this.renderJournalCompare(); this.renderSizingAlerts(); }, 'date');
-
-    const unsubMarket = db.collection('settings').doc(`market_${uid}`).onSnapshot(doc => {
-      if (doc.exists) this.data.market = { ...this.data.market, ...doc.data() };
-      this.fillMarketForm(); this.renderMarketSummary(); this.renderMission(); this.renderDashboard();
-    });
-    this.state.unsubscribers.push(unsubMarket);
-
-    const unsubPsych = db.collection('psychology').doc(uid).onSnapshot(doc => {
-      if (doc.exists) this.data.psychology = { ...this.data.psychology, ...doc.data() };
-      this.fillPsychology();
-    });
-    this.state.unsubscribers.push(unsubPsych);
-
-    const unsubReview = db.collection('reviews').doc(uid).onSnapshot(doc => {
-      if (doc.exists) this.data.review = { ...this.data.review, ...doc.data() };
-      this.fillReview(); this.renderReview();
-    });
-    this.state.unsubscribers.push(unsubReview);
+    skipBtn?.addEventListener('click', closeIntro, { once: true });
+    setTimeout(closeIntro, 4500);
   },
 
-  seedPlaceholders() {
-    this.renderAll();
+  bindEvents() {
+    document.querySelectorAll('[data-tab]').forEach(btn => btn.addEventListener('click', () => this.switchTab(btn.dataset.tab)));
+    document.getElementById('theme-toggle').addEventListener('click', () => this.applyTheme(this.state.theme === 'dark' ? 'light' : 'dark'));
+    document.getElementById('global-search').addEventListener('input', () => this.renderJournalTable());
+    ['filter-start','filter-end','filter-status','filter-result'].forEach(id => document.getElementById(id).addEventListener('input', () => this.renderJournalTable()));
+    ['energy-input','calm-input','fomo-input','confidence-input'].forEach(id => document.getElementById(id).addEventListener('input', () => this.updateMindsetValues()));
+    ['breath-in','breath-hold','breath-out'].forEach(id => document.getElementById(id).addEventListener('input', () => this.updateBreathSummary()));
+    ['trade-theory-file','trade-actual-file','pattern-image-file'].forEach(id => document.getElementById(id).addEventListener('change', (e) => this.handleFilePreview(e)));
+  },
+
+  lockApp(locked) {
+    document.querySelector('.app-shell').classList.toggle('app-locked', locked);
+    document.getElementById('auth-overlay').classList.toggle('hidden', !locked);
+  },
+
+  showAuthMessage(message, isError = false) {
+    const el = document.getElementById('auth-message');
+    el.textContent = message;
+    el.classList.toggle('error', isError);
+  },
+
+  setUserInfo(user) {
+    document.getElementById('sidebar-user-name').textContent = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Chưa đăng nhập';
+    document.getElementById('sidebar-user-email').textContent = user?.email || '—';
   },
 
   setSyncStatus(text) {
     document.getElementById('sync-status').textContent = text;
   },
 
-  updateUserChip() {
-    const chip = document.getElementById('user-chip');
-    chip.textContent = this.state.user ? `${this.state.user.email} · ${this.state.role}` : 'Chưa đăng nhập';
-  },
-
-  async handleLogin() {
-    const e = document.getElementById('login-email').value.trim();
-    const p = document.getElementById('login-pass').value;
+  loadLocalCache() {
     try {
-      await auth.signInWithEmailAndPassword(e, p);
-    } catch (error) {
-      alert('Đăng nhập thất bại. Kiểm tra Email/Password trên Firebase.');
+      const raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : this.demo();
+    } catch {
+      return this.demo();
     }
   },
 
-  async logout() {
-    await auth.signOut();
+  saveLocalCache() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(this.data));
   },
 
-  switchTab(tab) {
-    this.state.currentTab = tab;
-    document.querySelectorAll('.tab-pane').forEach(x => x.classList.remove('active'));
-    document.querySelectorAll('.nav-item').forEach(x => x.classList.remove('active'));
-    document.getElementById(`tab-${tab}`)?.classList.add('active');
-    document.getElementById(`btn-${tab}`)?.classList.add('active');
-    this.renderAll();
+  persist() {
+    this.saveLocalCache();
+    this.queueCloudSave();
   },
 
-  renderAll() {
-    this.renderMission();
-    this.renderDashboard();
-    this.renderScan();
-    this.renderPatterns();
-    this.renderJournalTable();
-    this.renderJournalCompare();
-    this.renderSizingAlerts();
-    this.renderMarketSummary();
-    this.renderReview();
+  queueCloudSave() {
+    if (!this.state.user) return;
+    clearTimeout(this.state.saveTimer);
+    this.setSyncStatus('Đang chờ lưu...');
+    this.state.saveTimer = setTimeout(() => this.saveCloudNow(), 500);
+  },
+
+  async saveCloudNow() {
+    if (!this.state.user || this.state.isSaving) return;
+    this.state.isSaving = true;
+    try {
+      this.setSyncStatus('Đang lưu Firebase...');
+      await SupabaseService.saveJournal(this.state.user.id, this.data);
+      this.setSyncStatus('Đã lưu lên Firebase');
+    } catch (error) {
+      console.error(error);
+      this.setSyncStatus('Lưu thất bại');
+      alert('Không lưu được lên Firebase: ' + (error.message || error));
+    } finally {
+      this.state.isSaving = false;
+    }
+  },
+
+  async login(email, password) { return SupabaseService.login(email, password); },
+  async register(name, email, password) { return SupabaseService.register(name, email, password); },
+  async resetPassword(email) { return SupabaseService.resetPassword(email); },
+  async logout() { return SupabaseService.logout(); },
+
+  resolveImage(path) {
+    if (!path) return '';
+    if (path.startsWith('http') || path.startsWith('data:') || path.startsWith('./') || path.startsWith('/')) return path;
+    return path;
+  },
+
+  getTradeById(id) { return this.data.trades.find(t => t.id === id) || this.data.trades[0]; },
+  getPatternById(id) { return this.data.patterns.find(p => p.id === id) || null; },
+  patternName(id) { return this.getPatternById(id)?.name || 'Chưa chọn'; },
+  fmtMoney(v) { return `${Math.round(v || 0).toLocaleString('vi-VN')}đ`; },
+  fmtNum(v, d = 1) { return v == null || Number.isNaN(v) ? '—' : Number(v).toFixed(d).replace(/\.0$/, ''); },
+
+  applyTheme(theme) {
+    this.state.theme = theme;
+    localStorage.setItem('cacon-theme', theme);
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+    const label = document.querySelector('#theme-toggle span');
+    if (label) label.textContent = theme === 'dark' ? 'Light' : 'Dark';
+    const icon = document.querySelector('#theme-toggle i');
+    if (icon) icon.setAttribute('data-lucide', theme === 'dark' ? 'sun' : 'moon');
     lucide.createIcons();
   },
 
-  getFilteredJournal() {
-    const q = (document.getElementById('global-search')?.value || '').trim().toLowerCase();
-    const from = document.getElementById('filter-from')?.value || '';
-    const to = document.getElementById('filter-to')?.value || '';
-    const status = document.getElementById('filter-status')?.value || '';
-    const result = document.getElementById('filter-result')?.value || '';
-    return this.data.journal.filter(t => {
-      const hitQ = !q || [t.ticker, t.strategy, t.setupName, t.sector, t.mistake].join(' ').toLowerCase().includes(q);
-      const hitFrom = !from || t.date >= from;
-      const hitTo = !to || t.date <= to;
-      const hitStatus = !status || t.status === status;
-      const hitResult = !result || t.result === result;
-      return hitQ && hitFrom && hitTo && hitStatus && hitResult;
+  switchTab(tab) {
+    this.state.activeTab = tab;
+    document.querySelectorAll('.screen').forEach(el => el.classList.add('hidden'));
+    document.querySelector(`[data-screen="${tab}"]`).classList.remove('hidden');
+    document.querySelectorAll('.side-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tab));
+  },
+
+  calcTradePnl(t) {
+    if (t.exit == null || !t.qty) return 0;
+    return (t.exit - t.entry) * t.qty;
+  },
+
+  recomputeTrades() {
+    this.data.trades = this.data.trades.map(t => {
+      const pnl = this.calcTradePnl(t);
+      const pnlPct = t.exit != null && t.entry ? ((t.exit - t.entry) / t.entry) * 100 : null;
+      const r = t.exit != null && t.entry && t.stop ? ((t.exit - t.entry) / Math.abs(t.entry - t.stop)) : null;
+      const execution = t.score >= 85 ? 'Đúng kế hoạch' : t.score >= 70 ? 'Đang theo dõi' : 'Vi phạm kế hoạch';
+      return { ...t, pnl, pnlPct, r, execution };
     });
+    if (!this.state.selectedTradeId && this.data.trades[0]) this.state.selectedTradeId = this.data.trades[0].id;
   },
 
-  renderMission() {
-    document.getElementById('mission-dist').textContent = this.data.market.distDays ?? 0;
-    document.getElementById('mission-risk').textContent = this.data.market.riskMode || 'Tỷ cổ phiếu 50%';
-    document.getElementById('mission-sector').textContent = this.data.market.strongSector || 'Chưa cập nhật';
+  renderAll() {
+    this.refreshSelects();
+    this.renderDashboard();
+    this.renderScan();
+    this.renderJournalTable();
+    this.renderTradeDetail();
+    this.renderSizingCard('position-sizing-card');
+    this.renderSizingCard('sizing-standalone');
+    this.renderBehaviorCard();
+    this.renderPatterns();
+    this.renderMarket();
+    this.renderMindset();
+    this.renderReview();
+    this.updateMission();
+    lucide.createIcons();
   },
 
-  computeStats() {
-    const journal = this.data.journal;
-    const closed = journal.filter(x => x.status === 'Đã đóng');
-    const wins = closed.filter(x => x.result === 'Lãi').length;
-    const losses = closed.filter(x => x.result === 'Lỗ').length;
-    const avgQuality = closed.length ? (closed.filter(x => (x.quality || '').startsWith('A')).length / closed.length) : 0;
-    const active = this.data.watchlist.filter(w => w.group === 'Gần điểm mua').length;
-    const alerts = journal.filter(x => x.mistake && x.mistake !== 'Không').length;
-    return {
-      stockRate: this.data.market.riskMode || 'Tỷ cổ phiếu 50%',
-      active,
-      winRate: closed.length ? `${((wins / closed.length) * 100).toFixed(1)}%` : '0%',
-      quality: avgQuality >= .7 ? 'A-' : avgQuality >= .5 ? 'B+' : 'C+',
-      alerts,
-      wins, losses,
-      repeatMistake: this.getRepeatMistake(),
-      nextStep: active ? 'Scan → Size' : 'Làm sạch watchlist'
-    };
+  marketStateLabel() {
+    const d = Number(this.data.market.distDays || 0);
+    if (d <= 2) return { title: 'Thị trường bình thường', action: 'Có thể giao dịch bình thường, ưu tiên setup chuẩn.' };
+    if (d === 3) return { title: 'Giảm Margin', action: 'Thị trường có rủi ro, giảm sử dụng margin.' };
+    if (d === 4) return { title: 'Tỷ trọng 50%', action: 'Hạ tỷ trọng cổ phiếu xuống khoảng 50%.' };
+    return { title: 'Ưu tiên tiền mặt', action: '5-6 ngày phân phối, ưu tiên giữ tiền mặt và chỉ theo dõi leader dài hạn.' };
   },
+
+  leadingSectors() {
+    return (this.data.market.sectors || '').split(',').map(s => s.trim()).filter(Boolean);
+  },
+
+  leadingSectorText() {
+    return this.leadingSectors().slice(0, 2).join(' · ') || 'Không có';
+  },
+
+  computePassRate() {
+    const total = this.data.trades.reduce((sum, t) => sum + (t.checklist?.length || 0), 0);
+    const mistakes = this.data.trades.filter(t => t.mistake && t.mistake !== 'Không').length;
+    return total ? Math.max(0, Math.min(100, Math.round(((total - mistakes) / total) * 100))) : 0;
+  },
+
+  bestSector() {
+    const map = {};
+    this.data.trades.filter(t => t.result !== 'open').forEach(t => { map[t.sector] = (map[t.sector] || 0) + (t.pnl || 0); });
+    return Object.entries(map).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
+  },
+
+  bestWeekday() {
+    const names = ['CN','Thứ 2','Thứ 3','Thứ 4','Thứ 5','Thứ 6','Thứ 7'];
+    const map = {};
+    this.data.trades.filter(t => t.result !== 'open').forEach(t => {
+      const key = names[new Date(t.entryDate).getDay()];
+      map[key] = (map[key] || 0) + (t.pnl || 0);
+    });
+    return Object.entries(map).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
+  },
+
+  topMistake() {
+    const map = {};
+    this.data.trades.filter(t => t.mistake && t.mistake !== 'Không').forEach(t => { map[t.mistake] = (map[t.mistake] || 0) + 1; });
+    return Object.entries(map).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Không';
+  },
+
+  scoreLetter(score) { return score >= 85 ? 'A-' : score >= 70 ? 'B+' : 'C'; },
+  qualityChip(score) { return `<span class="table-chip ${score >= 85 ? 'green' : score >= 70 ? 'amber' : 'rose'}">${score >= 85 ? 'A Setup' : score >= 70 ? 'B Setup' : 'C Setup'}</span>`; },
+  executionChip(v) { return `<span class="table-chip ${v === 'Đúng kế hoạch' ? 'green' : v === 'Đang theo dõi' ? 'amber' : 'rose'}">${v}</span>`; },
+  resultChip(v) { return `<span class="table-chip ${v === 'win' ? 'green' : v === 'loss' ? 'rose' : 'sky'}">${v === 'win' ? 'Lãi' : v === 'loss' ? 'Lỗ' : 'Đang mở'}</span>`; },
+  emotionChip(v) { return `<span class="table-chip ${v === 'Tự tin' ? 'green' : v === 'Sợ hãi' ? 'sky' : 'amber'}">${v}</span>`; },
+  mistakeChip(v) { return `<span class="table-chip ${v === 'Không' ? 'gray' : 'rose'}">${v}</span>`; },
+  marketChip(v) { return `<span class="table-chip green">${v}</span>`; },
 
   renderDashboard() {
-    const s = this.computeStats();
-    const stats = [
-      { title: 'Market Pulse', value: s.stockRate, note: `${this.data.market.distDays || 0} ngày phân phối, ${this.data.market.strongSector || ''}`, cls: 'soft-green' },
-      { title: 'Watchlist khả dụng', value: String(s.active).padStart(2, '0'), note: 'Cơ hội gần điểm mua hôm nay' },
-      { title: 'Win rate', value: s.winRate, note: `${s.wins} thắng / ${s.losses} thua`, },
-      { title: 'Trade Quality', value: s.quality, note: 'Điểm trung bình quality score', cls: 'soft-green' },
-      { title: 'Risk cảnh báo', value: String(s.alerts).padStart(2, '0'), note: 'Lệnh có dấu hiệu lệch kế hoạch', cls: 'soft-yellow' }
-    ];
-    document.getElementById('dashboard-stats').innerHTML = stats.map(x => `
-      <div class="stat-card ${x.cls || ''}">
-        <h4>${x.title}</h4>
-        <strong>${x.value}</strong>
-        <p>${x.note}</p>
+    const trades = this.data.trades;
+    const closed = trades.filter(t => t.status === 'closed');
+    const wins = closed.filter(t => t.result === 'win').length;
+    const winRate = closed.length ? (wins / closed.length) * 100 : 0;
+    const avgScore = trades.length ? trades.reduce((sum, t) => sum + Number(t.score || 0), 0) / trades.length : 0;
+    const groups = {
+      near: this.data.watchlists.filter(w => w.group === 'near'),
+      watch: this.data.watchlists.filter(w => w.group === 'watch'),
+      long: this.data.watchlists.filter(w => w.group === 'long')
+    };
+
+    document.getElementById('dashboard-kpis').innerHTML = [
+      ['Market Pulse', this.marketStateLabel().title, `${this.data.market.distDays} ngày phân phối`, 'activity'],
+      ['Watchlist', groups.near.length + groups.watch.length + groups.long.length, 'Tổng cơ hội đang theo dõi', 'bookmark-check'],
+      ['Win rate', `${this.fmtNum(winRate, 1)}%`, `${wins}/${closed.length || 0} lệnh đóng`, 'target'],
+      ['Trade Quality', this.scoreLetter(avgScore), 'Điểm chất lượng trung bình', 'gauge'],
+      ['Cảnh báo', this.topMistake(), 'Sai lầm lặp lại nhiều nhất', 'siren']
+    ].map(([title, val, desc, icon]) => `
+      <div class="card p-5">
+        <div class="flex items-start justify-between gap-4">
+          <div><div class="text-sm text-zinc-500 dark:text-zinc-400">${title}</div><div class="text-4xl font-semibold mt-2">${val}</div><div class="text-sm text-zinc-500 dark:text-zinc-400 mt-1">${desc}</div></div>
+          <div class="w-14 h-14 rounded-2xl bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center"><i data-lucide="${icon}" class="w-6 h-6"></i></div>
+        </div>
       </div>`).join('');
 
-    const watchHtml = this.data.watchlist.slice(0, 4).map(w => `
-      <div class="watch-card">
-        <div class="head"><h4>${w.ticker}</h4><span class="pill">${w.group}</span></div>
-        <div class="grid grid-cols-2 gap-3 text-sm">
-          <div><div class="text-slate-500">Buy zone</div><strong>${w.buyZone || '-'}</strong></div>
-          <div><div class="text-slate-500">Risk</div><strong>${w.risk || '-'}</strong></div>
-        </div>
-        <div class="actions-row">
-          <button class="btn-sm primary" onclick="App.openJournalModal(null, '${w.id}')">Tạo lệnh</button>
-          <button class="btn-sm" onclick="App.selectWatchToPattern('${w.patternId || ''}')">Mở checklist</button>
-        </div>
-      </div>`).join('') || '<div class="text-slate-500">Chưa có watchlist.</div>';
-    document.getElementById('dashboard-watchlist').innerHTML = watchHtml;
+    document.getElementById('dashboard-actions').innerHTML = [
+      ['Scan cơ hội', 'scan-search', 'scan'],
+      ['Tạo lệnh mới', 'plus', 'trade'],
+      ['Đánh giá thị trường', 'newspaper', 'market'],
+      ['Review tuần', 'clipboard-list', 'review']
+    ].map(([title, icon, action]) => `
+      <button class="card p-5 text-left" onclick="${action === 'trade' ? 'App.openTradeModal()' : `App.switchTab('${action}')`}">
+        <div class="flex items-start justify-between gap-3"><div><div class="text-xl font-semibold">${title}</div></div><div class="w-14 h-14 rounded-2xl bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center"><i data-lucide="${icon}" class="w-5 h-5"></i></div></div>
+      </button>`).join('');
 
-    document.getElementById('dashboard-control').innerHTML = `
-      <div class="mini-card"><div class="text-slate-500">Checklist pass rate</div><strong>${this.data.patterns.length ? '85%' : '0%'}</strong><div>Tỷ lệ tick đủ điều kiện trước lệnh</div></div>
-      <div class="mini-card"><div class="text-slate-500">Sai lầm lặp lại</div><strong style="font-size:18px;color:#dc2626">${s.repeatMistake}</strong><div>Cần viết rule chặn lỗi</div></div>
-      <div class="mini-card"><div class="text-slate-500">Bước tiếp theo</div><strong style="font-size:18px">${s.nextStep}</strong><div>Không vào lệnh trước khi tính risk</div></div>
-      <div class="mini-card"><div class="text-slate-500">Watchlist dài hạn</div><strong style="font-size:18px">${this.data.watchlist.filter(w=>w.group==='Dài hạn').map(w=>w.ticker).join(', ') || 'Chưa có'}</strong><div>Giữ nền dài hạn và canh gia tăng.</div></div>`;
+    this.renderWatchCards('dash-near-list', groups.near, true);
+    this.renderWatchCards('dash-watch-list', groups.watch, true);
+    this.renderWatchCards('dash-long-list', groups.long, true);
+    document.getElementById('count-near').textContent = `${groups.near.length} mã`;
+    document.getElementById('count-watch').textContent = `${groups.watch.length} mã`;
+    document.getElementById('count-long').textContent = `${groups.long.length} mã`;
+    document.getElementById('pass-rate').textContent = `${this.computePassRate()}%`;
+    document.getElementById('top-mistake').textContent = this.topMistake();
+    document.getElementById('next-step').textContent = this.marketStateLabel().action;
+    document.getElementById('longterm-summary').innerHTML = groups.long.map(w => `
+      <div class="watch-card">
+        <div class="topline"><div><div class="title">${w.symbol}</div><div class="muted text-sm">${this.patternName(w.patternId)} · ${w.sector || ''}</div></div><span class="status-pill">${w.status}</span></div>
+        <div class="grid grid-cols-2 gap-3 text-sm mb-3"><div><div class="muted">Buy zone</div><strong>${w.buyZone}</strong></div><div><div class="muted">Risk</div><strong>${w.risk}</strong></div></div>
+        <div class="text-sm text-zinc-600 dark:text-zinc-300">${w.plan || ''}</div>
+      </div>`).join('') || '<div class="text-sm muted">Chưa có dữ liệu.</div>';
   },
 
-  groupWatchlist() {
-    const groups = ['Gần điểm mua', 'Theo dõi', 'Dài hạn'];
-    return groups.map(group => ({ group, items: this.data.watchlist.filter(w => w.group === group) }));
+  renderWatchCards(targetId, items, compact = false) {
+    document.getElementById(targetId).innerHTML = items.map(w => `
+      <div class="watch-card">
+        <div class="topline"><div><div class="title">${w.symbol}</div><div class="muted text-sm">${this.patternName(w.patternId)}</div></div><span class="status-pill">${w.status}</span></div>
+        <div class="grid grid-cols-2 gap-3 text-sm mb-3"><div><div class="muted">Buy zone</div><strong>${w.buyZone}</strong></div><div><div class="muted">Risk</div><strong>${w.risk}</strong></div></div>
+        <div class="flex gap-2 flex-wrap">
+          <button class="btn-primary !py-2 !px-4" onclick="App.prefillTradeFromWatchlist('${w.id}')">Tạo lệnh</button>
+          <button class="btn-secondary !py-2 !px-4" onclick="App.openPatternFromWatchlist('${w.id}')">Mở checklist</button>
+          ${compact ? '' : `<button class="btn-secondary !py-2 !px-4" onclick="App.openWatchlistModal('${w.id}')">Sửa</button><button class="btn-secondary !py-2 !px-4" onclick="App.deleteWatchlist('${w.id}')">Xóa</button>`}
+        </div>
+      </div>`).join('') || '<div class="text-sm muted">Chưa có dữ liệu.</div>';
   },
 
   renderScan() {
-    document.getElementById('scan-columns').innerHTML = this.groupWatchlist().map(col => `
-      <div class="scan-col">
-        <h4>${col.group} <span class="meta">${col.items.length} mã</span></h4>
-        <div class="stack-list">
-          ${col.items.map(w => `
-            <div class="watch-card">
-              <div class="head"><h4>${w.ticker}</h4><span class="pill">${w.tag || col.group}</span></div>
-              <div class="text-slate-500 mb-2">${this.findPatternName(w.patternId)}</div>
-              <div class="grid grid-cols-2 gap-3 text-sm">
-                <div><div class="text-slate-500">Buy zone</div><strong>${w.buyZone || '-'}</strong></div>
-                <div><div class="text-slate-500">Risk</div><strong>${w.risk || '-'}</strong></div>
-              </div>
-              <div class="actions-row">
-                <button class="btn-sm primary" onclick="App.openJournalModal(null, '${w.id}')">Tạo lệnh</button>
-                <button class="btn-sm" onclick="App.selectWatchToPattern('${w.patternId || ''}')">Mở checklist</button>
-                <button class="btn-sm" onclick="App.openWatchModal('${w.id}')">Sửa</button>
-                <button class="btn-sm" onclick="App.deleteWatch('${w.id}')">Xóa</button>
-              </div>
-            </div>`).join('') || '<div class="text-slate-500">Chưa có dữ liệu.</div>'}
-        </div>
-      </div>`).join('');
+    const groups = {
+      near: this.data.watchlists.filter(w => w.group === 'near'),
+      watch: this.data.watchlists.filter(w => w.group === 'watch'),
+      long: this.data.watchlists.filter(w => w.group === 'long')
+    };
+    this.renderWatchCards('scan-near-list', groups.near);
+    this.renderWatchCards('scan-watch-list', groups.watch);
+    this.renderWatchCards('scan-long-list', groups.long);
+    document.getElementById('scan-count-near').textContent = `${groups.near.length} mã`;
+    document.getElementById('scan-count-watch').textContent = `${groups.watch.length} mã`;
+    document.getElementById('scan-count-long').textContent = `${groups.long.length} mã`;
   },
 
-  renderPatterns() {
-    const html = this.data.patterns.map(p => `
-      <div class="card">
-        <div class="compare-panel">
-          <img src="${p.image || 'https://placehold.co/800x420?text=Pattern'}" alt="${p.name}">
-          <div class="compare-title">${p.name}</div>
-          <div class="compare-meta">${p.strategy || ''}</div>
-          <div class="mb-3">${p.description || ''}</div>
-          <div class="check-list-box">
-            ${(p.conditions || []).map(c => `<div class="check-item"><span>${c}</span><strong>Đạt</strong></div>`).join('')}
-            ${(p.triggers || []).map(c => `<div class="check-item"><span>${c}</span><strong>Check</strong></div>`).join('')}
-          </div>
-          <div class="actions-row mt-4">
-            <button class="btn-sm primary" onclick="App.openPatternModal('${p.id}')">Chỉnh sửa</button>
-            <button class="btn-sm" onclick="App.deletePattern('${p.id}')">Xóa</button>
-            <button class="btn-sm" onclick="App.linkPatternToJournal('${p.id}')">Liên kết sang so sánh</button>
-          </div>
-        </div>
-      </div>`).join('') || '<div class="text-slate-500">Chưa có mẫu hình.</div>';
-    document.getElementById('patterns-grid').innerHTML = `<div class="two-col-grid">${html}</div>`;
+  journalFilteredTrades() {
+    const q = document.getElementById('global-search').value.trim().toLowerCase();
+    const start = document.getElementById('filter-start').value;
+    const end = document.getElementById('filter-end').value;
+    const status = document.getElementById('filter-status').value;
+    const result = document.getElementById('filter-result').value;
+    return this.data.trades.filter(t => {
+      const hitQ = !q || [t.symbol, t.strategy, t.setup, t.sector, t.mistake].join(' ').toLowerCase().includes(q);
+      const hitStart = !start || t.entryDate >= start;
+      const hitEnd = !end || t.entryDate <= end;
+      const hitStatus = status === 'all' || t.status === status;
+      const hitResult = result === 'all' || t.result === result;
+      return hitQ && hitStart && hitEnd && hitStatus && hitResult;
+    }).sort((a, b) => b.entryDate.localeCompare(a.entryDate));
   },
 
   renderJournalTable() {
-    const rows = this.getFilteredJournal();
-    const html = rows.map(t => `
-      <tr onclick="App.selectJournal('${t.id}')" style="cursor:pointer">
-        <td><strong>${t.ticker || ''}</strong></td>
-        <td>${t.date || ''}</td>
-        <td><span class="pill">${t.strategy || ''}</span></td>
-        <td>${t.setupName || this.findPatternName(t.patternId)}</td>
-        <td>${t.sector || ''}</td>
-        <td>${t.entry || ''}</td>
-        <td>${t.stop || ''}</td>
-        <td style="color:${Number(t.plPercent) >= 0 ? '#059669' : '#e11d48'}">${t.plPercent ?? ''}${t.plPercent !== undefined ? '%' : ''}</td>
-        <td>${t.rMultiple || ''}</td>
-        <td>${this.renderTag(t.quality, this.tagClass(t.quality))}</td>
-        <td>${this.renderTag(t.execution, this.tagClass(t.execution))}</td>
-        <td>${this.renderTag(t.result, this.tagClass(t.result))}</td>
-        <td>${t.mistake || 'Không'}</td>
-        <td>${t.chartUrl ? '<a target="_blank" href="'+t.chartUrl+'">chart.png</a>' : '-'}</td>
-        <td>
-          <button class="btn-sm" onclick="event.stopPropagation();App.openJournalModal('${t.id}')">Sửa</button>
-          <button class="btn-sm" onclick="event.stopPropagation();App.deleteJournal('${t.id}')">Xóa</button>
-        </td>
+    document.getElementById('journal-table-body').innerHTML = this.journalFilteredTrades().map(t => `
+      <tr class="clickable" onclick="App.selectTrade('${t.id}')">
+        <td class="font-semibold">${t.symbol}</td><td>${t.entryDate}</td><td>${t.strategy}</td><td>${t.setup}</td><td>${t.sector}</td>
+        <td>${this.fmtNum(t.entry, 1)}</td><td>${this.fmtNum(t.stop, 1)}</td>
+        <td class="${(t.pnlPct || 0) >= 0 ? 'text-brand-600 dark:text-brand-300' : 'text-rose-600 dark:text-rose-300'}">${t.pnlPct == null ? '—' : this.fmtNum(t.pnlPct, 2) + '%'}</td>
+        <td class="${(t.r || 0) >= 0 ? 'text-brand-600 dark:text-brand-300' : 'text-rose-600 dark:text-rose-300'}">${t.r == null ? '—' : this.fmtNum(t.r, 2) + 'R'}</td>
+        <td>${this.qualityChip(t.score)}</td><td>${this.executionChip(t.execution)}</td><td>${this.resultChip(t.result)}</td><td>${t.mistake}</td><td><span class="table-chip gray">chart</span></td>
       </tr>`).join('');
-    document.getElementById('journal-body').innerHTML = html || '<tr><td colspan="15" class="text-center text-slate-500">Chưa có dữ liệu</td></tr>';
   },
 
-  renderTag(text, cls) {
-    if (!text) return '-';
-    return `<span class="tag ${cls}">${text}</span>`;
-  },
-  tagClass(text='') {
-    const t = text.toLowerCase();
-    if (t.includes('a') || t.includes('đúng') || t.includes('lãi')) return 'green';
-    if (t.includes('b') || t.includes('đang')) return 'yellow';
-    if (t.includes('c') || t.includes('lỗ') || t.includes('vi phạm')) return 'red';
-    return 'blue';
+  selectTrade(id) {
+    this.state.selectedTradeId = id;
+    this.renderTradeDetail();
+    this.renderBehaviorCard();
+    this.renderSizingCard('position-sizing-card');
   },
 
-  selectJournal(id) {
-    this.state.selectedJournalId = id;
-    this.renderJournalCompare();
-  },
-
-  renderJournalCompare() {
-    const trade = this.data.journal.find(x => x.id === this.state.selectedJournalId) || this.data.journal[0];
-    if (!trade) {
-      document.getElementById('pattern-compare').innerHTML = 'Chưa có lệnh.';
-      document.getElementById('trade-compare').innerHTML = 'Chưa có lệnh.';
+  renderTradeDetail() {
+    const t = this.getTradeById(this.state.selectedTradeId);
+    const p = this.getPatternById(t?.patternId);
+    const card = document.getElementById('trade-detail-card');
+    if (!t) {
+      card.innerHTML = '<div>Chưa có lệnh.</div>';
       return;
     }
-    const pattern = this.data.patterns.find(p => p.id === trade.patternId);
-    document.getElementById('pattern-compare').innerHTML = pattern ? `
-      <img src="${pattern.image || 'https://placehold.co/800x420?text=Pattern'}">
-      <div class="compare-title">${pattern.name}</div>
-      <div class="compare-meta">${pattern.strategy || ''}</div>
-      <div>${pattern.description || ''}</div>` : 'Chưa liên kết mẫu hình.';
-    document.getElementById('trade-compare').innerHTML = `
-      ${trade.chartUrl ? `<img src="${trade.chartUrl}">` : '<div class="text-slate-500">Chưa có ảnh thực tế</div>'}
-      <div class="compare-title">${trade.ticker}</div>
-      <div class="compare-meta">${trade.strategy || ''} · ${trade.date || ''}</div>
-      <div>Entry ${trade.entry || '-'} · Stop ${trade.stop || '-'} · ${trade.result || ''}</div>`;
-    document.getElementById('journal-checklist').innerHTML = (trade.checks || []).map(c => `<div class="check-item"><span>${c}</span><strong>Đạt</strong></div>`).join('') || '<div class="text-slate-500">Chưa có checklist.</div>';
-    document.getElementById('journal-notes').innerHTML = `<div class="tip-box">${trade.note || 'Chưa có ghi chú.'}</div>`;
-  },
-
-  renderSizingAlerts() {
-    const riskTrades = this.data.journal.filter(t => (t.mistake || '') !== 'Không' && t.mistake);
-    document.getElementById('behavior-alerts').innerHTML = riskTrades.map(t => `<div class="tip-box">${t.ticker} · ${t.result || ''} · ${t.mistake}</div>`).join('') || '<div class="text-slate-500">Chưa có cảnh báo hành vi.</div>';
-  },
-
-  calcPositionSizing() {
-    const capital = Number(document.getElementById('ps-capital').value || 0);
-    const riskPct = Number(document.getElementById('ps-riskpct').value || 0) / 100;
-    const entry = Number(document.getElementById('ps-entry').value || 0);
-    const stop = Number(document.getElementById('ps-stop').value || 0);
-    if (!capital || !entry || !stop || entry <= stop) {
-      document.getElementById('ps-result').innerHTML = 'Nhập đúng vốn, entry và stop loss.';
-      return;
-    }
-    const riskCash = capital * riskPct;
-    const perShareRisk = entry - stop;
-    const shares = Math.floor(riskCash / perShareRisk);
-    const positionValue = shares * entry;
-    const usedPct = (positionValue / capital) * 100;
-    document.getElementById('ps-result').innerHTML = `
-      <div class="grid grid-cols-2 gap-3 text-sm">
-        <div><div class="text-slate-500">Rủi ro tối đa</div><strong>${riskCash.toLocaleString('vi-VN')}đ</strong></div>
-        <div><div class="text-slate-500">SL tối đa</div><strong>${perShareRisk.toFixed(2)} cp</strong></div>
-        <div><div class="text-slate-500">Khối lượng</div><strong>${shares.toLocaleString('vi-VN')} cp</strong></div>
-        <div><div class="text-slate-500">% vốn sử dụng</div><strong>${usedPct.toFixed(1)}%</strong></div>
+    card.innerHTML = `
+      <div class="section-head"><div><h2>Chi tiết lệnh: ${t.symbol}</h2><p>${t.strategy} · ${t.setup} · ${t.sector}</p></div><div class="flex gap-2">${this.marketChip(t.marketPulse)}${this.qualityChip(t.score)}</div></div>
+      <div class="grid md:grid-cols-4 gap-4 mb-4">${[['Entry', t.entry], ['Stop', t.stop], ['Exit', t.exit ?? '—'], ['Quantity', t.qty]].map(([k, v]) => `<div class="trade-kv"><div class="text-xs muted">${k}</div><div class="text-2xl font-semibold mt-2">${v}</div></div>`).join('')}</div>
+      <div class="grid lg:grid-cols-2 gap-4 mb-4">
+        <div class="trade-kv"><div class="font-semibold mb-3">Biểu đồ lý thuyết</div><div class="image-preview-box !aspect-[4/2.7]" onclick="App.zoomImage('${this.resolveImage(t.theoryImage || p?.image || '')}')">${(t.theoryImage || p?.image) ? `<img src="${this.resolveImage(t.theoryImage || p?.image)}">` : '<div class="muted text-sm">Chưa có ảnh</div>'}</div></div>
+        <div class="trade-kv"><div class="font-semibold mb-3">Biểu đồ vào lệnh thực tế</div><div class="image-preview-box !aspect-[4/2.7]" onclick="App.zoomImage('${this.resolveImage(t.actualImage || '')}')">${t.actualImage ? `<img src="${this.resolveImage(t.actualImage)}">` : '<div class="muted text-sm">Chưa có ảnh</div>'}</div></div>
       </div>
-      <div class="tip-box mt-3">${usedPct > 50 ? 'Cảnh báo: stop loss rộng hơn bình thường. Giảm khối lượng để không vượt risk account.' : 'Size hợp lý theo risk hiện tại.'}</div>`;
+      <div class="grid lg:grid-cols-2 gap-4">
+        <div class="trade-kv"><div class="font-semibold mb-3">Checklist trước lệnh</div><div class="space-y-2">${(t.checklist || p?.conditions || []).map(c => `<div class="mini-row"><span>${c}</span><strong>Check</strong></div>`).join('') || '<div class="text-sm muted">Chưa có checklist.</div>'}</div></div>
+        <div class="trade-kv"><div class="font-semibold mb-3">Ghi chú & cảm xúc</div><div class="text-sm leading-6 text-zinc-600 dark:text-zinc-300 mb-4">${t.note || ''}</div><div class="flex flex-wrap gap-2 mb-4">${this.emotionChip(t.emotion)}${this.mistakeChip(t.mistake)}</div><div class="flex gap-2"><button class="btn-primary" onclick="App.openTradeModal('${t.id}')">Sửa lệnh</button><button class="btn-secondary" onclick="App.switchTab('review')">Review</button></div></div>
+      </div>`;
   },
 
-  fillMarketForm() {
-    document.getElementById('market-dist-days').value = this.data.market.distDays ?? 0;
-    document.getElementById('market-risk-mode').value = this.data.market.riskMode || '';
-    document.getElementById('market-strong-sector').value = this.data.market.strongSector || '';
-    document.getElementById('market-note').value = this.data.market.note || '';
+  computeSizing(account, riskPct, entry, stop) {
+    const riskAmount = account * (riskPct / 100);
+    const perShare = Math.abs(entry - stop);
+    const shares = perShare > 0 ? Math.floor(riskAmount / perShare) : 0;
+    const capitalNeeded = shares * entry;
+    const capitalPercent = account ? (capitalNeeded / account) * 100 : 0;
+    const warning = perShare <= 0 ? 'Stop loss phải khác điểm mua.' : capitalPercent > 35 ? 'Cảnh báo: stop loss rộng hơn bình thường, cân nhắc giảm vị thế.' : 'Vị thế ở vùng an toàn, vẫn cần tuân thủ stop loss.';
+    return { riskAmount, shares, capitalNeeded, capitalPercent, warning };
   },
 
-  async saveMarket() {
-    if (!this.state.user) return;
-    const payload = {
-      userId: this.state.user.uid,
-      distDays: Number(document.getElementById('market-dist-days').value || 0),
-      riskMode: document.getElementById('market-risk-mode').value.trim(),
-      strongSector: document.getElementById('market-strong-sector').value.trim(),
-      note: document.getElementById('market-note').value.trim(),
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  renderSizingCard(targetId) {
+    const t = this.getTradeById(this.state.selectedTradeId) || {};
+    const res = this.computeSizing(this.data.accountSize, this.data.riskPercent, Number(t.entry || 0), Number(t.stop || 0));
+    document.getElementById(targetId).innerHTML = `
+      <div class="section-head"><div><h2>Position Sizing</h2><p>Tự tính khối lượng tối đa theo risk account.</p></div></div>
+      <div class="grid md:grid-cols-2 gap-4 mb-4">
+        <label class="field-block"><span>Tài khoản</span><input id="${targetId}-account" type="number" class="field-input" value="${this.data.accountSize}"></label>
+        <label class="field-block"><span>Risk % / lệnh</span><input id="${targetId}-risk" type="number" step="0.1" class="field-input" value="${this.data.riskPercent}"></label>
+        <label class="field-block"><span>Điểm mua</span><input id="${targetId}-entry" type="number" step="0.01" class="field-input" value="${t.entry || ''}"></label>
+        <label class="field-block"><span>Stop loss</span><input id="${targetId}-stop" type="number" step="0.01" class="field-input" value="${t.stop || ''}"></label>
+      </div>
+      <div class="rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800 mb-4">
+        <div class="grid md:grid-cols-2 gap-4 text-sm">
+          <div><div class="muted">Rủi ro tối đa</div><div class="font-semibold mt-1">${this.fmtMoney(res.riskAmount)}</div></div>
+          <div><div class="muted">SL tối đa</div><div class="font-semibold mt-1">${res.shares.toLocaleString('vi-VN')} cp</div></div>
+          <div><div class="muted">Giá trị vị thế</div><div class="font-semibold mt-1">${this.fmtMoney(res.capitalNeeded)}</div></div>
+          <div><div class="muted">% vốn sử dụng</div><div class="font-semibold mt-1">${this.fmtNum(res.capitalPercent, 1)}%</div></div>
+        </div>
+      </div>
+      <div class="rounded-2xl p-4 bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:text-amber-100 mb-4">${res.warning}</div>
+      <button class="btn-primary w-full" onclick="App.lockSizing('${targetId}')">Khóa size</button>`;
+
+    ['account','risk','entry','stop'].forEach(key => {
+      document.getElementById(`${targetId}-${key}`).addEventListener('input', () => this.liveSizing(targetId));
+    });
+  },
+
+  liveSizing(targetId) {
+    this.data.accountSize = Number(document.getElementById(`${targetId}-account`).value || 0);
+    this.data.riskPercent = Number(document.getElementById(`${targetId}-risk`).value || 0);
+    this.persist();
+    this.renderSizingCard(targetId);
+    if (targetId === 'position-sizing-card') this.renderSizingCard('sizing-standalone');
+    if (targetId === 'sizing-standalone') this.renderSizingCard('position-sizing-card');
+  },
+
+  lockSizing() {
+    alert('Đã cập nhật cấu hình position sizing.');
+  },
+
+  renderBehaviorCard() {
+    const issues = this.data.trades.filter(t => t.mistake !== 'Không').slice(0, 2);
+    document.getElementById('behavior-card').innerHTML = `
+      <div class="section-head"><div><h2>Cảnh báo hành vi</h2><p>Giúp chặn lỗi trước khi lặp lại.</p></div></div>
+      <div class="space-y-3">${issues.map(i => `<div class="rounded-2xl bg-rose-50 p-4 text-rose-700 dark:bg-rose-500/10 dark:text-rose-200">${i.symbol}: ${i.mistake}. Cảm xúc: ${i.emotion}.</div>`).join('') || '<div class="rounded-2xl bg-zinc-50 p-4 dark:bg-zinc-900/70">Chưa có lỗi hành vi nổi bật.</div>'}</div>`;
+  },
+
+  renderPatterns() {
+    document.getElementById('pattern-grid').innerHTML = this.data.patterns.map(p => `
+      <div class="pattern-card">
+        <div class="image-preview-box !aspect-[16/9] mb-4" onclick="App.zoomImage('${this.resolveImage(p.image || '')}')">${p.image ? `<img src="${this.resolveImage(p.image)}">` : '<div class="muted text-sm">Chưa có ảnh</div>'}</div>
+        <div class="flex justify-between items-start gap-3 mb-2"><div><div class="text-2xl font-semibold">${p.name}</div><div class="muted text-sm">${p.strategy}</div></div><button class="btn-secondary !py-2 !px-3" onclick="App.comparePattern('${p.id}')">So sánh</button></div>
+        <p class="text-sm leading-6 text-zinc-600 dark:text-zinc-300 mb-4">${p.description || ''}</p>
+        <div class="grid gap-3 mb-4"><div><div class="text-sm font-semibold mb-2">Điều kiện nền</div>${(p.conditions || []).map(c => `<div class="mini-row mb-2"><span>${c}</span><strong>Đạt</strong></div>`).join('')}</div><div><div class="text-sm font-semibold mb-2">Điều kiện kích hoạt</div>${(p.triggers || []).map(c => `<div class="mini-row mb-2"><span>${c}</span><strong>Check</strong></div>`).join('')}</div></div>
+        <div class="flex gap-2 flex-wrap"><button class="btn-primary !py-2 !px-4" onclick="App.openPatternModal('${p.id}')">Chỉnh sửa</button><button class="btn-secondary !py-2 !px-4" onclick="App.deletePattern('${p.id}')">Xóa</button></div>
+      </div>`).join('');
+  },
+
+  renderMarket() {
+    const m = this.data.market;
+    document.getElementById('market-dist-input').value = m.distDays;
+    document.getElementById('market-sentiment-input').value = m.sentiment;
+    document.getElementById('market-sectors-input').value = m.sectors;
+    document.getElementById('market-note-input').value = m.note;
+    document.getElementById('market-dist-view').textContent = m.distDays;
+    document.getElementById('market-state-view').textContent = this.marketStateLabel().title;
+    document.getElementById('market-sentiment-view').textContent = m.sentiment;
+    document.getElementById('market-sector-tags').innerHTML = this.leadingSectors().map(s => `<span class="table-chip gray">${s}</span>`).join('');
+    document.getElementById('market-guidance').textContent = `${this.marketStateLabel().title}: ${this.marketStateLabel().action} ${m.note || ''}`;
+    document.getElementById('market-action-text').textContent = this.marketStateLabel().action;
+  },
+
+  saveMarket() {
+    this.data.market = {
+      distDays: Number(document.getElementById('market-dist-input').value || 0),
+      sentiment: document.getElementById('market-sentiment-input').value,
+      sectors: document.getElementById('market-sectors-input').value,
+      note: document.getElementById('market-note-input').value
     };
-    await db.collection('settings').doc(`market_${this.state.user.uid}`).set(payload, { merge: true });
-    this.setSyncStatus('Đã lưu đánh giá thị trường');
+    this.persist();
+    this.renderMarket();
+    this.renderDashboard();
+    this.updateMission();
   },
 
-  renderMarketSummary() {
-    const dist = Number(this.data.market.distDays || 0);
-    let action = 'Thị trường bình thường';
-    if (dist === 3) action = 'Có rủi ro, hạ tỷ trọng margin';
-    if (dist === 4) action = 'Nguy cơ cao, nâng tiền mặt 50%';
-    if (dist >= 5) action = 'Ưu tiên 100% tiền mặt';
-    document.getElementById('market-summary').innerHTML = `
-      <div class="mini-card"><div class="text-slate-500">Số ngày phân phối</div><strong>${dist}</strong><div>${action}</div></div>
-      <div class="mini-card"><div class="text-slate-500">Risk mode</div><strong style="font-size:18px">${this.data.market.riskMode || ''}</strong></div>
-      <div class="mini-card"><div class="text-slate-500">Ngành mạnh</div><strong style="font-size:18px">${this.data.market.strongSector || ''}</strong></div>
-      <div class="tip-box">${this.data.market.note || ''}</div>`;
+  renderMindset() {
+    const m = this.data.mindset;
+    document.getElementById('energy-input').value = m.energy;
+    document.getElementById('calm-input').value = m.calm;
+    document.getElementById('fomo-input').value = m.fomo;
+    document.getElementById('confidence-input').value = m.confidence;
+    document.getElementById('preflight-note').value = m.preflight;
+    document.getElementById('breath-in').value = m.breathIn;
+    document.getElementById('breath-hold').value = m.breathHold;
+    document.getElementById('breath-out').value = m.breathOut;
+    this.updateMindsetValues();
+    this.updateBreathSummary();
   },
 
-  fillPsychology() {
-    document.getElementById('psy-energy').value = this.data.psychology.energy ?? 7;
-    document.getElementById('psy-calm').value = this.data.psychology.calm ?? 8;
-    document.getElementById('psy-fomo').value = this.data.psychology.fomo ?? 4;
-    document.getElementById('psy-confidence').value = this.data.psychology.confidence ?? 6;
-    document.getElementById('psy-checklist').value = this.data.psychology.checklist || '';
-    this.updateRangeLabel('energy'); this.updateRangeLabel('calm'); this.updateRangeLabel('fomo'); this.updateRangeLabel('conf');
+  updateMindsetValues() {
+    ['energy','calm','fomo','confidence'].forEach(k => {
+      document.getElementById(`${k}-value`).textContent = document.getElementById(`${k}-input`).value + '/10';
+    });
   },
 
-  updateRangeLabel(key) {
-    const map = { energy: 'psy-energy', calm: 'psy-calm', fomo: 'psy-fomo', conf: 'psy-confidence' };
-    const labels = { energy: 'energy-val', calm: 'calm-val', fomo: 'fomo-val', conf: 'conf-val' };
-    document.getElementById(labels[key]).textContent = document.getElementById(map[key]).value;
-  },
-
-  async savePsychology() {
-    if (!this.state.user) return;
-    const payload = {
-      userId: this.state.user.uid,
-      energy: Number(document.getElementById('psy-energy').value),
-      calm: Number(document.getElementById('psy-calm').value),
-      fomo: Number(document.getElementById('psy-fomo').value),
-      confidence: Number(document.getElementById('psy-confidence').value),
-      checklist: document.getElementById('psy-checklist').value.trim(),
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  saveMindset() {
+    this.data.mindset = {
+      energy: Number(document.getElementById('energy-input').value || 0),
+      calm: Number(document.getElementById('calm-input').value || 0),
+      fomo: Number(document.getElementById('fomo-input').value || 0),
+      confidence: Number(document.getElementById('confidence-input').value || 0),
+      preflight: document.getElementById('preflight-note').value,
+      breathIn: Number(document.getElementById('breath-in').value || 4),
+      breathHold: Number(document.getElementById('breath-hold').value || 7),
+      breathOut: Number(document.getElementById('breath-out').value || 8)
     };
-    await db.collection('psychology').doc(this.state.user.uid).set(payload, { merge: true });
-    this.setSyncStatus('Đã lưu check-in tâm lý');
+    this.persist();
+    this.updateBreathSummary();
+    this.updateMission();
+    alert('Đã lưu check-in tâm lý.');
+  },
+
+  updateBreathSummary() {
+    const i = Number(document.getElementById('breath-in').value || 4);
+    const h = Number(document.getElementById('breath-hold').value || 7);
+    const o = Number(document.getElementById('breath-out').value || 8);
+    document.getElementById('breath-summary').textContent = `Nhịp hiện tại: Hít ${i} giây — Giữ ${h} giây — Thở ${o} giây.`;
   },
 
   startBreathing() {
     this.stopBreathing();
-    const inputIn = Number(document.getElementById('breath-in').value || 4);
-    const hold = Number(document.getElementById('breath-hold').value || 7);
-    const out = Number(document.getElementById('breath-out').value || 8);
     const phases = [
-      { text: `Hít ${inputIn} giây`, sec: inputIn, scale: 1.18 },
-      { text: `Giữ ${hold} giây`, sec: hold, scale: 1.18 },
-      { text: `Thở ${out} giây`, sec: out, scale: .9 }
+      { label: 'Hít vào', cls: 'expand', sec: Number(document.getElementById('breath-in').value || 4) },
+      { label: 'Giữ', cls: 'hold', sec: Number(document.getElementById('breath-hold').value || 7) },
+      { label: 'Thở ra', cls: 'release', sec: Number(document.getElementById('breath-out').value || 8) }
     ];
-    let phaseIdx = 0;
+    let total = 0;
+    let phaseIndex = 0;
     let remaining = phases[0].sec;
+    const totalTarget = 300;
+    const stage = document.getElementById('breathing-stage');
     const circle = document.getElementById('breath-circle');
-    const status = document.getElementById('breath-status');
+    const timer = document.getElementById('breath-timer');
     const progress = document.getElementById('breath-progress');
     const tick = () => {
-      const phase = phases[phaseIdx];
-      status.textContent = phase.text;
-      circle.textContent = remaining;
-      circle.style.transform = `scale(${phase.scale})`;
-      progress.style.width = `${((phase.sec - remaining) / phase.sec) * 100}%`;
+      const phase = phases[phaseIndex];
+      stage.textContent = phase.label;
+      circle.className = `mx-auto mt-5 breath-circle ${phase.cls}`;
+      timer.textContent = remaining;
+      progress.style.width = `${Math.min(100, (total / totalTarget) * 100)}%`;
       remaining -= 1;
+      total += 1;
       if (remaining < 0) {
-        phaseIdx = (phaseIdx + 1) % phases.length;
-        remaining = phases[phaseIdx].sec;
+        phaseIndex = (phaseIndex + 1) % phases.length;
+        remaining = phases[phaseIndex].sec;
+      }
+      if (total > totalTarget) {
+        this.stopBreathing();
+        stage.textContent = 'Hoàn thành';
+        timer.textContent = '✓';
+        progress.style.width = '100%';
       }
     };
     tick();
-    this.state.breathTimer = setInterval(tick, 1000);
+    this.state.breathing.timer = setInterval(tick, 1000);
   },
 
   stopBreathing() {
-    if (this.state.breathTimer) clearInterval(this.state.breathTimer);
-    this.state.breathTimer = null;
-    document.getElementById('breath-status').textContent = 'Sẵn sàng';
-    document.getElementById('breath-circle').textContent = '4-7-8';
-    document.getElementById('breath-circle').style.transform = 'scale(1)';
-    document.getElementById('breath-progress').style.width = '0%';
-  },
-
-  fillReview() {
-    document.getElementById('review-week').value = this.data.review.week || '';
-    document.getElementById('review-month').value = this.data.review.month || '';
-  },
-
-  async saveReview() {
-    if (!this.state.user) return;
-    const payload = {
-      userId: this.state.user.uid,
-      week: document.getElementById('review-week').value.trim(),
-      month: document.getElementById('review-month').value.trim(),
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    };
-    await db.collection('reviews').doc(this.state.user.uid).set(payload, { merge: true });
-    this.setSyncStatus('Đã lưu review');
+    if (this.state.breathing.timer) clearInterval(this.state.breathing.timer);
+    this.state.breathing.timer = null;
   },
 
   renderReview() {
-    const closed = this.data.journal.filter(x => x.status === 'Đã đóng');
-    const profit = closed.reduce((s, x) => s + (Number(x.plPercent) || 0), 0);
-    const bestSector = this.getBestSector();
-    const stats = [
-      { title: 'Tổng lệnh đã đóng', value: `${closed.filter(x => x.result === 'Lãi').length} thắng / ${closed.filter(x => x.result === 'Lỗ').length} thua` },
-      { title: 'Lợi nhuận ròng', value: `${profit.toFixed(2)}% tổng hợp từ nhật ký` },
-      { title: 'Ngày giao dịch hiệu quả', value: 'Thứ 3 · Ngày có expectancy tốt nhất' },
-      { title: 'Nhóm ngành tốt nhất', value: `${bestSector || 'Chưa đủ dữ liệu'}` },
-      { title: 'Sai lầm lặp lại', value: this.getRepeatMistake() },
-      { title: 'Lệnh mở hiện tại', value: `${this.data.journal.filter(x => x.status === 'Đang mở').length} lệnh ưu tiên follow-up` }
-    ];
-    document.getElementById('review-stats').innerHTML = stats.map(s => `<div class="mini-card"><div class="text-slate-500">${s.title}</div><strong style="font-size:20px">${s.value}</strong></div>`).join('');
-    const loser = this.data.journal.filter(x => x.result === 'Lỗ').sort((a,b) => Number(a.plPercent) - Number(b.plPercent))[0];
-    document.getElementById('postmortem-box').innerHTML = loser ? `
-      <div class="postmortem-item">
-        <div class="flex justify-between items-start"><div><strong style="font-size:24px">${loser.ticker}</strong><div class="text-slate-500">${loser.strategy} · ${loser.setupName || ''}</div></div><span class="tag red">Lỗ</span></div>
-        <p>Lệnh lỗ lớn nhất. P/L: ${loser.plPercent || 0}%. Sai lầm ghi nhận: ${loser.mistake || 'Chưa ghi'}.</p>
-        <textarea class="field area" placeholder="Điều gì đã xảy ra? Kỳ vọng gì? Nếu làm lại sẽ làm gì khác?"></textarea>
-      </div>` : '<div class="text-slate-500">Chưa có lệnh lỗ để hậu kiểm.</div>';
+    const closed = this.data.trades.filter(t => t.status === 'closed');
+    const wins = closed.filter(t => t.result === 'win');
+    const losses = closed.filter(t => t.result === 'loss');
+    document.getElementById('review-summary').innerHTML = `
+      <div class="grid md:grid-cols-2 gap-4">
+        <div class="stat-box"><div>Tổng lệnh đã đóng</div><strong>${closed.length}</strong><span>${wins.length} thắng / ${losses.length} thua</span></div>
+        <div class="stat-box"><div>Lợi nhuận ròng</div><strong>${this.fmtMoney(closed.reduce((a, b) => a + (b.pnl || 0), 0))}</strong><span>Tự tổng hợp từ nhật ký</span></div>
+        <div class="stat-box"><div>Ngày giao dịch hiệu quả</div><strong>${this.bestWeekday()}</strong><span>Ngày có expectancy tốt nhất</span></div>
+        <div class="stat-box"><div>Nhóm ngành tốt nhất</div><strong>${this.bestSector()}</strong><span>Nhóm có tổng P/L cao nhất</span></div>
+      </div>`;
+    document.getElementById('weekly-review-note').value = this.data.review.weekly || '';
+    document.getElementById('monthly-review-note').value = this.data.review.monthly || '';
+    document.getElementById('postmortem-list').innerHTML = losses.slice(0, 3).map(t => `
+      <div class="rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800">
+        <div class="flex justify-between gap-3 mb-3"><div><div class="text-xl font-semibold">${t.symbol}</div><div class="muted text-sm">${t.strategy} · ${t.setup}</div></div>${this.resultChip(t.result)}</div>
+        <div class="text-sm text-zinc-600 dark:text-zinc-300">P/L: ${this.fmtMoney(t.pnl)} · Sai lầm: ${t.mistake} · Cảm xúc: ${t.emotion}</div>
+      </div>`).join('') || '<div class="text-sm muted">Chưa có lệnh lỗ để hậu kiểm.</div>';
   },
 
-  getBestSector() {
-    const map = {};
-    this.data.journal.filter(x => x.result === 'Lãi').forEach(x => {
-      map[x.sector] = (map[x.sector] || 0) + Number(x.plPercent || 0);
+  saveReview() {
+    this.data.review.weekly = document.getElementById('weekly-review-note').value;
+    this.data.review.monthly = document.getElementById('monthly-review-note').value;
+    this.persist();
+    alert('Đã lưu review tuần / tháng.');
+  },
+
+  refreshSelects() {
+    const options = ['<option value="">Chưa chọn</option>'].concat(this.data.patterns.map(p => `<option value="${p.id}">${p.name}</option>`)).join('');
+    ['trade-pattern-id', 'watch-pattern-id'].forEach(id => { document.getElementById(id).innerHTML = options; });
+  },
+
+  updateMission() {
+    document.getElementById('mission-dist').textContent = this.data.market.distDays;
+    document.getElementById('mission-risk').textContent = this.marketStateLabel().title;
+    document.getElementById('mission-sectors').textContent = this.leadingSectorText();
+    document.getElementById('sidebar-breath-bar').style.width = `${Math.max(15, this.data.mindset.calm * 10)}%`;
+  },
+
+  prefillTradeFromWatchlist(id) {
+    const w = this.data.watchlists.find(x => x.id === id);
+    if (!w) return;
+    const p = this.getPatternById(w.patternId);
+    this.openTradeModal(null, {
+      symbol: w.symbol,
+      sector: w.sector || '',
+      setup: p?.name || '',
+      strategy: p?.strategy || '',
+      patternId: w.patternId || '',
+      note: w.plan || '',
+      checklist: (p?.triggers || []).join('\n'),
+      marketPulse: this.marketStateLabel().title,
+      theoryImage: p?.image || ''
     });
-    return Object.entries(map).sort((a,b) => b[1]-a[1])[0]?.[0];
-  },
-  getRepeatMistake() {
-    const map = {};
-    this.data.journal.forEach(x => { if (x.mistake && x.mistake !== 'Không') map[x.mistake] = (map[x.mistake] || 0) + 1; });
-    return Object.entries(map).sort((a,b)=>b[1]-a[1])[0]?.[0] || 'Chưa có';
   },
 
-  populatePatternSelects() {
-    const options = '<option value="">-- Chọn mẫu hình --</option>' + this.data.patterns.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
-    ['watch-pattern', 'journal-pattern'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.innerHTML = options;
-    });
+  openPatternFromWatchlist(id) {
+    const w = this.data.watchlists.find(x => x.id === id);
+    if (!w) return;
+    this.switchTab('patterns');
   },
 
-  findPatternName(id) {
-    return this.data.patterns.find(p => p.id === id)?.name || '';
+  comparePattern(id) {
+    const trade = this.data.trades.find(t => t.patternId === id);
+    if (trade) this.state.selectedTradeId = trade.id;
+    this.switchTab('journal');
+    this.renderTradeDetail();
+  },
+
+  openTradeModal(id = null, prefill = {}) {
+    this.state.editingTradeId = id;
+    const base = id ? this.getTradeById(id) : {
+      entryDate: new Date().toISOString().slice(0, 10),
+      riskPct: this.data.riskPercent,
+      score: 80,
+      status: 'open',
+      result: 'open',
+      emotion: 'Tự tin',
+      mistake: 'Không',
+      marketPulse: this.marketStateLabel().title
+    };
+    const src = { ...base, ...prefill };
+    const set = (id, v = '') => { document.getElementById(id).value = v ?? ''; };
+    set('trade-symbol', src.symbol);
+    set('trade-sector', src.sector);
+    set('trade-entry-date', src.entryDate);
+    set('trade-exit-date', src.exitDate);
+    set('trade-strategy', src.strategy);
+    set('trade-setup', src.setup);
+    set('trade-entry', src.entry);
+    set('trade-stop', src.stop);
+    set('trade-exit', src.exit);
+    set('trade-qty', src.qty);
+    set('trade-risk', src.riskPct);
+    set('trade-score', src.score);
+    set('trade-status', src.status);
+    set('trade-result', src.result);
+    set('trade-emotion', src.emotion);
+    set('trade-mistake', src.mistake);
+    set('trade-market-pulse', src.marketPulse);
+    set('trade-pattern-id', src.patternId);
+    set('trade-checklist', Array.isArray(src.checklist) ? src.checklist.join('\n') : (src.checklist || ''));
+    set('trade-note', src.note);
+    set('trade-theory-url', src.theoryImage || '');
+    set('trade-actual-url', src.actualImage || '');
+    document.getElementById('trade-theory-preview').src = this.resolveImage(src.theoryImage || '');
+    document.getElementById('trade-actual-preview').src = this.resolveImage(src.actualImage || '');
+    document.getElementById('trade-theory-file').value = '';
+    document.getElementById('trade-actual-file').value = '';
+    document.getElementById('trade-modal-title').textContent = id ? 'Chỉnh sửa lệnh' : 'Tạo lệnh mới';
+    document.getElementById('trade-modal').classList.remove('hidden');
+  },
+
+  closeTradeModal() { document.getElementById('trade-modal').classList.add('hidden'); },
+
+  async saveTrade() {
+    try {
+      let theoryImage = document.getElementById('trade-theory-url').value || document.getElementById('trade-theory-preview').src || '';
+      let actualImage = document.getElementById('trade-actual-url').value || document.getElementById('trade-actual-preview').src || '';
+      const theoryFile = document.getElementById('trade-theory-file').files?.[0];
+      const actualFile = document.getElementById('trade-actual-file').files?.[0];
+      if (theoryFile) theoryImage = await SupabaseService.uploadFile(this.state.user.id, theoryFile, 'trades/theory');
+      if (actualFile) actualImage = await SupabaseService.uploadFile(this.state.user.id, actualFile, 'trades/actual');
+
+      const obj = {
+        id: this.state.editingTradeId || 't' + Date.now(),
+        symbol: document.getElementById('trade-symbol').value.trim(),
+        sector: document.getElementById('trade-sector').value.trim(),
+        entryDate: document.getElementById('trade-entry-date').value,
+        exitDate: document.getElementById('trade-exit-date').value,
+        strategy: document.getElementById('trade-strategy').value.trim(),
+        setup: document.getElementById('trade-setup').value.trim(),
+        entry: Number(document.getElementById('trade-entry').value || 0),
+        stop: Number(document.getElementById('trade-stop').value || 0),
+        exit: document.getElementById('trade-exit').value ? Number(document.getElementById('trade-exit').value) : null,
+        qty: Number(document.getElementById('trade-qty').value || 0),
+        riskPct: Number(document.getElementById('trade-risk').value || 0),
+        score: Number(document.getElementById('trade-score').value || 0),
+        status: document.getElementById('trade-status').value,
+        result: document.getElementById('trade-result').value,
+        emotion: document.getElementById('trade-emotion').value,
+        mistake: document.getElementById('trade-mistake').value,
+        marketPulse: document.getElementById('trade-market-pulse').value,
+        patternId: document.getElementById('trade-pattern-id').value,
+        checklist: document.getElementById('trade-checklist').value.split('\n').map(s => s.trim()).filter(Boolean),
+        note: document.getElementById('trade-note').value,
+        theoryImage,
+        actualImage
+      };
+      const idx = this.data.trades.findIndex(x => x.id === obj.id);
+      if (idx >= 0) this.data.trades[idx] = obj; else this.data.trades.unshift(obj);
+      this.recomputeTrades();
+      this.persist();
+      this.state.selectedTradeId = obj.id;
+      this.closeTradeModal();
+      this.renderAll();
+    } catch (error) {
+      console.error(error);
+      alert('Không lưu được lệnh: ' + (error.message || error));
+    }
+  },
+
+  openWatchlistModal(id = null) {
+    this.state.editingWatchlistId = id;
+    const w = id ? this.data.watchlists.find(x => x.id === id) : { group: 'near', risk: 'Thấp' };
+    const set = (id, v = '') => { document.getElementById(id).value = v ?? ''; };
+    set('watch-symbol', w.symbol);
+    set('watch-group', w.group);
+    set('watch-pattern-id', w.patternId);
+    set('watch-buy-zone', w.buyZone);
+    set('watch-risk', w.risk);
+    set('watch-status', w.status);
+    set('watch-plan', w.plan);
+    document.getElementById('watchlist-modal-title').textContent = id ? 'Chỉnh sửa watchlist' : 'Thêm watchlist';
+    document.getElementById('watchlist-modal').classList.remove('hidden');
+  },
+
+  closeWatchlistModal() { document.getElementById('watchlist-modal').classList.add('hidden'); },
+
+  saveWatchlist() {
+    const patternId = document.getElementById('watch-pattern-id').value;
+    const obj = {
+      id: this.state.editingWatchlistId || 'w' + Date.now(),
+      symbol: document.getElementById('watch-symbol').value.trim(),
+      group: document.getElementById('watch-group').value,
+      patternId,
+      buyZone: document.getElementById('watch-buy-zone').value,
+      risk: document.getElementById('watch-risk').value,
+      status: document.getElementById('watch-status').value,
+      plan: document.getElementById('watch-plan').value,
+      sector: this.data.trades.find(t => t.patternId === patternId)?.sector || ''
+    };
+    const idx = this.data.watchlists.findIndex(x => x.id === obj.id);
+    if (idx >= 0) this.data.watchlists[idx] = obj; else this.data.watchlists.unshift(obj);
+    this.persist();
+    this.closeWatchlistModal();
+    this.renderAll();
+  },
+
+  deleteWatchlist(id) {
+    if (!confirm('Xóa watchlist này?')) return;
+    this.data.watchlists = this.data.watchlists.filter(x => x.id !== id);
+    this.persist();
+    this.renderAll();
   },
 
   openPatternModal(id = null) {
     this.state.editingPatternId = id;
-    const obj = this.data.patterns.find(x => x.id === id) || { name:'', strategy:'', image:'', description:'', conditions:[], triggers:[] };
+    const p = id ? this.getPatternById(id) : {};
+    const set = (id, v = '') => { document.getElementById(id).value = v ?? ''; };
+    set('pattern-name', p?.name);
+    set('pattern-strategy', p?.strategy);
+    set('pattern-description', p?.description);
+    set('pattern-conditions', Array.isArray(p?.conditions) ? p.conditions.join('\n') : '');
+    set('pattern-triggers', Array.isArray(p?.triggers) ? p.triggers.join('\n') : '');
+    set('pattern-image-url', p?.image);
+    document.getElementById('pattern-image-preview').src = this.resolveImage(p?.image || '');
+    document.getElementById('pattern-image-file').value = '';
     document.getElementById('pattern-modal-title').textContent = id ? 'Chỉnh sửa mẫu hình' : 'Tạo mẫu hình';
-    document.getElementById('pattern-name').value = obj.name || '';
-    document.getElementById('pattern-strategy').value = obj.strategy || '';
-    document.getElementById('pattern-image').value = obj.image || '';
-    document.getElementById('pattern-description').value = obj.description || '';
-    document.getElementById('pattern-conditions').value = (obj.conditions || []).join('\n');
-    document.getElementById('pattern-triggers').value = (obj.triggers || []).join('\n');
     document.getElementById('pattern-modal').classList.remove('hidden');
   },
-  closePatternModal(){ document.getElementById('pattern-modal').classList.add('hidden'); },
+
+  closePatternModal() { document.getElementById('pattern-modal').classList.add('hidden'); },
 
   async savePattern() {
-    if (!this.state.user) return;
-    const payload = {
-      userId: this.state.user.uid,
-      name: document.getElementById('pattern-name').value.trim(),
-      strategy: document.getElementById('pattern-strategy').value.trim(),
-      image: document.getElementById('pattern-image').value.trim(),
-      description: document.getElementById('pattern-description').value.trim(),
-      conditions: document.getElementById('pattern-conditions').value.split('\n').map(s=>s.trim()).filter(Boolean),
-      triggers: document.getElementById('pattern-triggers').value.split('\n').map(s=>s.trim()).filter(Boolean),
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    };
-    const ref = this.state.editingPatternId ? db.collection('patterns').doc(this.state.editingPatternId) : db.collection('patterns').doc();
-    await ref.set(payload, { merge: true });
-    this.closePatternModal();
-    this.setSyncStatus('Đã lưu mẫu hình');
+    try {
+      let patternImage = document.getElementById('pattern-image-url').value || document.getElementById('pattern-image-preview').src || '';
+      const patternFile = document.getElementById('pattern-image-file').files?.[0];
+      if (patternFile) patternImage = await SupabaseService.uploadFile(this.state.user.id, patternFile, 'patterns');
+      const obj = {
+        id: this.state.editingPatternId || 'p' + Date.now(),
+        name: document.getElementById('pattern-name').value.trim(),
+        strategy: document.getElementById('pattern-strategy').value.trim(),
+        description: document.getElementById('pattern-description').value.trim(),
+        conditions: document.getElementById('pattern-conditions').value.split('\n').map(s => s.trim()).filter(Boolean),
+        triggers: document.getElementById('pattern-triggers').value.split('\n').map(s => s.trim()).filter(Boolean),
+        image: patternImage
+      };
+      const idx = this.data.patterns.findIndex(x => x.id === obj.id);
+      if (idx >= 0) this.data.patterns[idx] = obj; else this.data.patterns.unshift(obj);
+      this.persist();
+      this.closePatternModal();
+      this.renderAll();
+    } catch (error) {
+      console.error(error);
+      alert('Không lưu được mẫu hình: ' + (error.message || error));
+    }
   },
 
-  async deletePattern(id) {
+  deletePattern(id) {
     if (!confirm('Xóa mẫu hình này?')) return;
-    await db.collection('patterns').doc(id).delete();
-    this.setSyncStatus('Đã xóa mẫu hình');
+    this.data.patterns = this.data.patterns.filter(x => x.id !== id);
+    this.data.watchlists = this.data.watchlists.map(w => w.patternId === id ? { ...w, patternId: '' } : w);
+    this.data.trades = this.data.trades.map(t => t.patternId === id ? { ...t, patternId: '' } : t);
+    this.persist();
+    this.renderAll();
   },
 
-  linkPatternToJournal(id) {
-    this.switchTab('journal');
-    const trade = this.data.journal.find(x => x.patternId === id);
-    if (trade) this.selectJournal(trade.id);
+  togglePatternZoom() {
+    const src = document.getElementById('pattern-image-preview').src;
+    if (src) this.zoomImage(src);
   },
 
-  selectWatchToPattern(id) {
-    this.switchTab('patterns');
-    if (id) this.linkPatternToJournal(id);
+  zoomImage(src) {
+    if (!src) return;
+    document.getElementById('zoomed-image').src = src;
+    document.getElementById('image-zoom-modal').classList.remove('hidden');
   },
 
-  openWatchModal(id = null) {
-    this.state.editingWatchId = id;
-    this.populatePatternSelects();
-    const obj = this.data.watchlist.find(x => x.id === id) || { ticker:'', group:'Gần điểm mua', patternId:'', risk:'', buyZone:'', tag:'' };
-    document.getElementById('watch-modal-title').textContent = id ? 'Sửa watchlist' : 'Thêm watchlist';
-    document.getElementById('watch-ticker').value = obj.ticker || '';
-    document.getElementById('watch-group').value = obj.group || '';
-    document.getElementById('watch-pattern').value = obj.patternId || '';
-    document.getElementById('watch-risk').value = obj.risk || '';
-    document.getElementById('watch-buyzone').value = obj.buyZone || '';
-    document.getElementById('watch-tag').value = obj.tag || '';
-    document.getElementById('watch-modal').classList.remove('hidden');
+  closeImageZoom(e) {
+    if (e.target.id === 'image-zoom-modal') document.getElementById('image-zoom-modal').classList.add('hidden');
   },
-  closeWatchModal(){ document.getElementById('watch-modal').classList.add('hidden'); },
 
-  async saveWatch() {
-    if (!this.state.user) return;
-    const payload = {
-      userId: this.state.user.uid,
-      ticker: document.getElementById('watch-ticker').value.trim().toUpperCase(),
-      group: document.getElementById('watch-group').value.trim(),
-      patternId: document.getElementById('watch-pattern').value,
-      risk: document.getElementById('watch-risk').value.trim(),
-      buyZone: document.getElementById('watch-buyzone').value.trim(),
-      tag: document.getElementById('watch-tag').value.trim(),
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  handleFilePreview(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (e.target.id === 'trade-theory-file') document.getElementById('trade-theory-preview').src = reader.result;
+      if (e.target.id === 'trade-actual-file') document.getElementById('trade-actual-preview').src = reader.result;
+      if (e.target.id === 'pattern-image-file') document.getElementById('pattern-image-preview').src = reader.result;
     };
-    const ref = this.state.editingWatchId ? db.collection('watchlist').doc(this.state.editingWatchId) : db.collection('watchlist').doc();
-    await ref.set(payload, { merge: true });
-    this.closeWatchModal();
-    this.setSyncStatus('Đã lưu watchlist');
-  },
-
-  async deleteWatch(id) {
-    if (!confirm('Xóa watchlist này?')) return;
-    await db.collection('watchlist').doc(id).delete();
-    this.setSyncStatus('Đã xóa watchlist');
-  },
-
-  openJournalModal(id = null, watchId = null) {
-    this.state.editingJournalId = id;
-    this.populatePatternSelects();
-    const fromWatch = this.data.watchlist.find(x => x.id === watchId);
-    const obj = this.data.journal.find(x => x.id === id) || {
-      ticker: fromWatch?.ticker || '', date: new Date().toISOString().slice(0,10), strategy:'', patternId:fromWatch?.patternId || '', sector:'', status:'Đang mở', entry:'', stop:'', plPercent:'', rMultiple:'', quality:'A Setup', execution:'Đúng kế hoạch', result:'Đang mở', mistake:'Không', chartUrl:'', checks:[], note:''
-    };
-    document.getElementById('journal-modal-title').textContent = id ? 'Chỉnh sửa lệnh' : 'Tạo lệnh mới';
-    document.getElementById('journal-ticker').value = obj.ticker || '';
-    document.getElementById('journal-date').value = obj.date || '';
-    document.getElementById('journal-strategy').value = obj.strategy || '';
-    document.getElementById('journal-pattern').value = obj.patternId || '';
-    document.getElementById('journal-sector').value = obj.sector || '';
-    document.getElementById('journal-status').value = obj.status || 'Đang mở';
-    document.getElementById('journal-entry').value = obj.entry || '';
-    document.getElementById('journal-stop').value = obj.stop || '';
-    document.getElementById('journal-pl').value = obj.plPercent || '';
-    document.getElementById('journal-r').value = obj.rMultiple || '';
-    document.getElementById('journal-quality').value = obj.quality || '';
-    document.getElementById('journal-execution').value = obj.execution || '';
-    document.getElementById('journal-result').value = obj.result || '';
-    document.getElementById('journal-mistake').value = obj.mistake || '';
-    document.getElementById('journal-chart').value = obj.chartUrl || '';
-    document.getElementById('journal-checks').value = (obj.checks || []).join('\n');
-    document.getElementById('journal-note').value = obj.note || '';
-    document.getElementById('journal-modal').classList.remove('hidden');
-  },
-  closeJournalModal(){ document.getElementById('journal-modal').classList.add('hidden'); },
-
-  async saveJournal() {
-    if (!this.state.user) return;
-    const patternId = document.getElementById('journal-pattern').value;
-    const payload = {
-      userId: this.state.user.uid,
-      ticker: document.getElementById('journal-ticker').value.trim().toUpperCase(),
-      date: document.getElementById('journal-date').value,
-      strategy: document.getElementById('journal-strategy').value.trim(),
-      patternId,
-      setupName: this.findPatternName(patternId),
-      sector: document.getElementById('journal-sector').value.trim(),
-      status: document.getElementById('journal-status').value,
-      entry: Number(document.getElementById('journal-entry').value || 0),
-      stop: Number(document.getElementById('journal-stop').value || 0),
-      plPercent: Number(document.getElementById('journal-pl').value || 0),
-      rMultiple: document.getElementById('journal-r').value.trim(),
-      quality: document.getElementById('journal-quality').value.trim(),
-      execution: document.getElementById('journal-execution').value.trim(),
-      result: document.getElementById('journal-result').value,
-      mistake: document.getElementById('journal-mistake').value.trim() || 'Không',
-      chartUrl: document.getElementById('journal-chart').value.trim(),
-      checks: document.getElementById('journal-checks').value.split('\n').map(s=>s.trim()).filter(Boolean),
-      note: document.getElementById('journal-note').value.trim(),
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    };
-    const ref = this.state.editingJournalId ? db.collection('journal').doc(this.state.editingJournalId) : db.collection('journal').doc();
-    await ref.set(payload, { merge: true });
-    this.closeJournalModal();
-    this.setSyncStatus('Đã lưu nhật ký lệnh');
-  },
-
-  async deleteJournal(id) {
-    if (!confirm('Xóa lệnh này?')) return;
-    await db.collection('journal').doc(id).delete();
-    this.setSyncStatus('Đã xóa lệnh');
+    reader.readAsDataURL(file);
   }
 };
+
+const AuthUI = {
+  switch(mode) {
+    App.state.authMode = mode;
+    document.getElementById('auth-tab-login').classList.toggle('active', mode === 'login');
+    document.getElementById('auth-tab-register').classList.toggle('active', mode === 'register');
+    document.getElementById('auth-name-wrap').style.display = mode === 'register' ? 'grid' : 'none';
+    App.showAuthMessage(mode === 'login' ? 'Đăng nhập để đồng bộ dữ liệu cá nhân, ảnh và nhật ký lên Supabase.' : 'Tạo tài khoản mới để mỗi người có dữ liệu riêng trên Supabase.');
+  },
+
+  async submit() {
+    const name = document.getElementById('auth-name').value.trim();
+    const email = document.getElementById('auth-email').value.trim();
+    const password = document.getElementById('auth-password').value.trim();
+    try {
+      if (!email || !password) throw new Error('Vui lòng nhập email và mật khẩu.');
+      if (App.state.authMode === 'register') {
+        await App.register(name, email, password);
+        App.showAuthMessage('Tạo tài khoản thành công.');
+      } else {
+        await App.login(email, password);
+        App.showAuthMessage('Đăng nhập thành công.');
+      }
+    } catch (error) {
+      console.error(error);
+      App.showAuthMessage(error.message || 'Thao tác thất bại.', true);
+    }
+  },
+
+  async resetPassword() {
+    const email = document.getElementById('auth-email').value.trim();
+    try {
+      if (!email) throw new Error('Vui lòng nhập email để đặt lại mật khẩu.');
+      await App.resetPassword(email);
+      App.showAuthMessage('Đã gửi email đặt lại mật khẩu.');
+    } catch (error) {
+      App.showAuthMessage(error.message || 'Không gửi được email đặt lại mật khẩu.', true);
+    }
+  }
+};
+
+window.App = App;
+window.AuthUI = AuthUI;
+window.addEventListener('DOMContentLoaded', () => App.init());

@@ -9,10 +9,5 @@ const firebaseConfig = {
 };
 
 firebase.initializeApp(firebaseConfig);
-
-const auth = firebase.auth();
-const db = firebase.firestore();
-
-let currentUser = null;
-let userProfile = null;
-let userRole = 'user';
+window.db = firebase.firestore();
+window.storage = firebase.storage();

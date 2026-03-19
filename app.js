@@ -154,14 +154,14 @@ const App = {
     this.lockApp(true);
 
     if (SupabaseService.ready) {
-      auth.onAuthStateChanged(async (user) => {
+      const handleUserSession = async (user) => {
         try {
           this.state.user = user || null;
           if (!user) {
             this.lockApp(true);
             this.setUserInfo(null);
             this.setSyncStatus('Chưa đăng nhập');
-    this.initIntro();
+            this.initIntro();
             return;
           }
           this.lockApp(false);
@@ -174,11 +174,24 @@ const App = {
           this.saveLocalCache();
           this.renderAll();
           this.setSyncStatus('Đã đồng bộ Supabase');
+          this.showAuthMessage('Đã đăng nhập và tải dữ liệu thành công.');
         } catch (error) {
           console.error(error);
           this.showAuthMessage(error.message || 'Không tải được dữ liệu Supabase.', true);
           this.setSyncStatus('Lỗi đồng bộ');
         }
+      };
+
+      const { data: sessionData, error: sessionError } = await SupabaseService.client.auth.getSession();
+      if (sessionError) {
+        console.error(sessionError);
+        this.showAuthMessage(sessionError.message || 'Không đọc được session Supabase.', true);
+      } else {
+        await handleUserSession(sessionData?.session?.user || null);
+      }
+
+      SupabaseService.client.auth.onAuthStateChange(async (_event, session) => {
+        await handleUserSession(session?.user || null);
       });
     } else {
       this.showAuthMessage('Supabase chưa được khởi tạo đúng trong supabase_config.js.', true);

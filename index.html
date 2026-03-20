@@ -3,9 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CACON Trading Journal Supabase</title>
+  <title>CACON Trading Journal Firebase</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
     tailwind.config = {
       theme: {
@@ -24,18 +23,21 @@
   <script src="https://unpkg.com/lucide@latest"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <link rel="stylesheet" href="style.css" />
-  <script defer src="supabase_config.js"></script>
 </head>
 <body class="bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
-  <div id="intro-overlay" class="intro-overlay">
-    <canvas id="intro-canvas"></canvas>
-    <div class="intro-copy">
-      <div class="intro-badge">CACON Stock</div>
-      <h1>Cá con bơi giữa đàn cá mập</h1>
-      <p>Giao diện thực chiến cho trader cá nhân: kỷ luật, lưu dữ liệu riêng và ra quyết định nhanh hơn.</p>
-      <button id="intro-skip" class="btn-primary">Vào journal</button>
+
+  <div id="intro-splash" class="intro-splash">
+    <canvas id="ocean-canvas" class="ocean-canvas"></canvas>
+    <div class="intro-overlay"></div>
+    <div class="intro-content">
+      <div class="intro-badge">CACON_STOCK</div>
+      <h1>Cá con nổi bật giữa dòng cá mập</h1>
+      <p>Giữ nguyên toàn bộ module hiện có. Màn hình chờ chỉ tạo cảm giác mở đầu mạnh hơn trước khi vào hệ thống và không làm thay đổi logic lưu trữ Firebase.</p>
+      <div class="intro-tip">Di chuột để cá con bơi né và dẫn hướng giữa đàn cá mập icon.</div>
     </div>
+    <button id="intro-skip" class="intro-skip">Vào nhanh</button>
   </div>
+
   <div id="auth-overlay" class="auth-overlay">
     <div class="auth-card">
       <div class="flex items-center gap-3 mb-6">
@@ -44,7 +46,7 @@
         </div>
         <div>
           <div class="font-semibold text-2xl leading-7">CACON Trading Journal</div>
-          <div class="text-sm text-zinc-500 dark:text-zinc-400">Đăng nhập bằng Supabase</div>
+          <div class="text-sm text-zinc-500 dark:text-zinc-400">Đăng nhập bằng Firebase</div>
         </div>
       </div>
 
@@ -63,7 +65,7 @@
         </div>
       </div>
 
-      <div id="auth-message" class="auth-message mt-4">Đăng nhập để đồng bộ dữ liệu cá nhân, ảnh và nhật ký lên Supabase.</div>
+      <div id="auth-message" class="auth-message mt-4">Đăng nhập để đồng bộ dữ liệu cá nhân, ảnh và nhật ký lên Firebase.</div>
     </div>
   </div>
 
@@ -75,19 +77,10 @@
         </div>
         <div>
           <div class="font-semibold text-2xl leading-7">CACON Trading Journal</div>
-          <div class="text-sm text-zinc-500 dark:text-zinc-400">Multi account · Supabase</div>
+          <div class="text-sm text-zinc-500 dark:text-zinc-400">Trading Workspace</div>
         </div>
       </div>
 
-      <section class="card p-4 space-y-3">
-        <div class="flex items-center gap-2 text-sm font-semibold"><i data-lucide="sparkles" class="w-4 h-4 text-brand-500"></i> Trader Mission hôm nay</div>
-        <p class="text-sm leading-6 text-zinc-600 dark:text-zinc-300">Ưu tiên setup đúng mẫu, tránh mua đuổi, chỉ vào lệnh khi đã qua checklist, sizing và thị trường cho phép.</p>
-        <div class="grid gap-2 text-xs">
-          <div class="mini-row"><span>Số ngày phân phối</span><strong id="mission-dist">2</strong></div>
-          <div class="mini-row"><span>Risk mode</span><strong id="mission-risk">Bình thường</strong></div>
-          <div class="mini-row"><span>Ngành mạnh</span><strong id="mission-sectors">CK · CN</strong></div>
-        </div>
-      </section>
 
       <nav class="grid gap-1 text-sm" id="sidebar-nav">
         <button class="side-btn active" data-tab="dashboard"><i data-lucide="layout-dashboard"></i>Dashboard</button>
@@ -122,12 +115,12 @@
         <div class="px-4 lg:px-6 py-4 flex items-center justify-between gap-3">
           <div>
             <div class="flex flex-wrap gap-2 mb-2">
-              <span class="badge-soft green">UX thực chiến</span>
-              <span class="badge-soft blue">Ít thao tác thừa</span>
-              <span class="badge-soft purple">Ra quyết định nhanh</span>
+              <span class="badge-soft green">Firebase Auth</span>
+              <span class="badge-soft blue">Cloud Firestore</span>
+              <span class="badge-soft purple">Storage ảnh</span>
             </div>
             <h1 class="text-3xl font-semibold leading-tight">Trading Journal PRO UX</h1>
-            <p class="text-sm text-zinc-500 dark:text-zinc-400">Mỗi tài khoản đăng nhập có dữ liệu riêng, không xem được của nhau và tự đồng bộ trên Supabase.</p>
+            <p class="text-sm text-zinc-500 dark:text-zinc-400">Mỗi tài khoản có dữ liệu riêng, lưu trên Firebase và tự đồng bộ theo tài khoản.</p>
           </div>
           <div class="flex items-center gap-2">
             <div class="hidden md:flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900">

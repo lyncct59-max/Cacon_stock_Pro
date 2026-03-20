@@ -96,12 +96,3 @@ tr.clickable:hover { background:#fafafa; cursor:pointer; }
 .dark .auth-message { background:#111827; color:#cbd5e1; }
 .dark .auth-message.error { background:rgba(127,29,29,.35); color:#fecaca; }
 .app-locked { filter:blur(4px); pointer-events:none; user-select:none; }
-
-
-.intro-overlay { position: fixed; inset: 0; z-index: 600; overflow: hidden; background: radial-gradient(circle at 50% 20%, rgba(56,189,248,.12), transparent 28%), linear-gradient(180deg, #02111f 0%, #07253e 58%, #0b5263 100%); }
-.intro-overlay.hidden { display: none; }
-#intro-canvas { position:absolute; inset:0; width:100%; height:100%; }
-.intro-copy { position:absolute; left: clamp(20px, 5vw, 72px); top: 50%; transform: translateY(-50%); width:min(520px, calc(100vw - 40px)); color:#f8fafc; z-index:2; }
-.intro-badge { display:inline-flex; padding:8px 12px; border-radius:999px; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.15); margin-bottom:16px; font-weight:700; }
-.intro-copy h1 { font-size: clamp(36px, 5vw, 64px); line-height:1.02; font-weight:800; letter-spacing:-0.04em; margin:0 0 14px; }
-.intro-copy p { font-size: clamp(15px, 2vw, 18px); line-height:1.7; color: rgba(255,255,255,.82); margin:0 0 20px; }

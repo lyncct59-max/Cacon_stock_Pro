@@ -1,63 +1,74 @@
-const STORAGE_KEY = 'cacon-trading-firebase-cache';
+const STORAGE_KEY = 'cacon-trading-supabase-cache';
 
-const FirebaseService = {
+const SupabaseService = {
+  get client() {
+    return window.supabaseClient || null;
+  },
+
   get ready() {
-    return !!(window.firebase && window.auth && window.db && window.storage);
+    return !!this.client;
   },
 
   async login(email, password) {
-    return auth.signInWithEmailAndPassword(email, password);
+    const { data, error } = await this.client.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    return data;
   },
 
   async register(name, email, password) {
-    const cred = await auth.createUserWithEmailAndPassword(email, password);
-    if (name) await cred.user.updateProfile({ displayName: name });
-    await db.collection('users').doc(cred.user.uid).set({
-      uid: cred.user.uid,
-      name: name || cred.user.displayName || email.split('@')[0],
+    const { data, error } = await this.client.auth.signUp({
       email,
-      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    }, { merge: true });
-    return cred;
+      password,
+      options: {
+        data: { full_name: name || email.split('@')[0] }
+      }
+    });
+    if (error) throw error;
+    if (data?.user) await this.ensureProfile(data.user, name);
+    return data;
   },
 
   async resetPassword(email) {
-    return auth.sendPasswordResetEmail(email);
+    const redirectTo = window.location.origin + window.location.pathname;
+    const { data, error } = await this.client.auth.resetPasswordForEmail(email, { redirectTo });
+    if (error) throw error;
+    return data;
   },
 
   async logout() {
-    return auth.signOut();
+    const { error } = await this.client.auth.signOut();
+    if (error) throw error;
   },
 
-  async ensureProfile(user) {
+  async ensureProfile(user, forcedName = '') {
     if (!user) return;
-    await db.collection('users').doc(user.uid).set({
-      uid: user.uid,
-      name: user.displayName || user.email?.split('@')[0] || 'Trader',
+    const profile = {
+      id: user.id,
       email: user.email || '',
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    }, { merge: true });
+      name: forcedName || user.user_metadata?.full_name || user.email?.split('@')[0] || 'Trader'
+    };
+    const { error } = await this.client.from('profiles').upsert(profile, { onConflict: 'id' });
+    if (error) throw error;
   },
 
   async loadJournal(uid) {
-    const snap = await db.collection('trading_journals').doc(uid).get();
-    return snap.exists ? snap.data()?.payload : null;
+    const { data, error } = await this.client.from('trading_journals').select('payload').eq('user_id', uid).maybeSingle();
+    if (error) throw error;
+    return data?.payload || null;
   },
 
   async saveJournal(uid, payload) {
-    return db.collection('trading_journals').doc(uid).set({
-      uid,
-      payload,
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    }, { merge: true });
+    const { error } = await this.client.from('trading_journals').upsert({ user_id: uid, payload }, { onConflict: 'user_id' });
+    if (error) throw error;
   },
 
   async uploadFile(uid, file, folder) {
     const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-    const ref = storage.ref(`users/${uid}/${folder}/${safeName}`);
-    await ref.put(file);
-    return ref.getDownloadURL();
+    const path = `${uid}/${folder}/${safeName}`;
+    const { error } = await this.client.storage.from('cacon-files').upload(path, file, { upsert: false, cacheControl: '3600' });
+    if (error) throw error;
+    const { data } = this.client.storage.from('cacon-files').getPublicUrl(path);
+    return data.publicUrl;
   }
 };
 
@@ -73,8 +84,7 @@ const App = {
     user: null,
     saveTimer: null,
     isSaving: false,
-    breathing: { timer: null },
-    intro: { dismissed: false, raf: null, pointer: { x: 0.5, y: 0.5 } }
+    breathing: { timer: null }
   },
 
   demo() {
@@ -140,9 +150,10 @@ const App = {
     this.renderAll();
     AuthUI.switch('login');
     this.setSyncStatus('Chưa đăng nhập');
+    this.initIntro();
     this.lockApp(true);
 
-    if (FirebaseService.ready) {
+    if (SupabaseService.ready) {
       auth.onAuthStateChanged(async (user) => {
         try {
           this.state.user = user || null;
@@ -150,30 +161,128 @@ const App = {
             this.lockApp(true);
             this.setUserInfo(null);
             this.setSyncStatus('Chưa đăng nhập');
+    this.initIntro();
             return;
           }
           this.lockApp(false);
           this.setUserInfo(user);
-          this.setSyncStatus('Đang tải Firebase...');
-          await FirebaseService.ensureProfile(user);
-          const cloudData = await FirebaseService.loadJournal(user.uid);
+          this.setSyncStatus('Đang tải Supabase...');
+          await SupabaseService.ensureProfile(user);
+          const cloudData = await SupabaseService.loadJournal(user.id);
           this.data = cloudData || this.demo();
           this.recomputeTrades();
           this.saveLocalCache();
           this.renderAll();
-          this.setSyncStatus('Đã đồng bộ Firebase');
+          this.setSyncStatus('Đã đồng bộ Supabase');
         } catch (error) {
           console.error(error);
-          this.showAuthMessage(error.message || 'Không tải được dữ liệu Firebase.', true);
+          this.showAuthMessage(error.message || 'Không tải được dữ liệu Supabase.', true);
           this.setSyncStatus('Lỗi đồng bộ');
         }
       });
     } else {
-      this.showAuthMessage('Firebase chưa được khởi tạo đúng trong firebase.js.', true);
+      this.showAuthMessage('Supabase chưa được khởi tạo đúng trong supabase_config.js.', true);
     }
 
     lucide.createIcons();
-    this.initIntroSplash();
+  },
+
+  initIntro() {
+    const overlay = document.getElementById('intro-overlay');
+    const canvas = document.getElementById('intro-canvas');
+    const skipBtn = document.getElementById('intro-skip');
+    if (!overlay || !canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    const pointer = { x: window.innerWidth * 0.55, y: window.innerHeight * 0.5 };
+    const DPR = Math.max(1, window.devicePixelRatio || 1);
+    const fish = [];
+    const makeFish = (type, i) => ({
+      type,
+      x: Math.random() * window.innerWidth,
+      y: (i + 1) * (window.innerHeight / 9),
+      vx: type === 'child' ? 0 : 0.35 + Math.random() * 0.35,
+      amp: 8 + Math.random() * 10,
+      phase: Math.random() * Math.PI * 2,
+      size: type === 'child' ? 1.2 : 1.8 + Math.random() * 0.8,
+      hue: type === 'child' ? 160 : 0
+    });
+
+    for (let i = 0; i < 8; i++) fish.push(makeFish('shark', i));
+    fish.push({ type: 'child', x: window.innerWidth * 0.35, y: window.innerHeight * 0.52, vx: 0, amp: 12, phase: 0, size: 1.15, hue: 160 });
+
+    const resize = () => {
+      canvas.width = Math.floor(window.innerWidth * DPR);
+      canvas.height = Math.floor(window.innerHeight * DPR);
+      canvas.style.width = window.innerWidth + 'px';
+      canvas.style.height = window.innerHeight + 'px';
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    };
+
+    const drawFish = (f) => {
+      ctx.save();
+      ctx.translate(f.x, f.y);
+      const dx = f.type === 'child' ? pointer.x - f.x : f.vx * 140;
+      const dy = f.type === 'child' ? pointer.y - f.y : Math.sin(f.phase) * 14;
+      ctx.rotate(Math.atan2(dy, dx));
+      ctx.scale(f.size, f.size);
+      ctx.lineWidth = f.type === 'child' ? 2.1 : 1.3;
+      ctx.strokeStyle = f.type === 'child' ? 'rgba(76,255,196,.95)' : 'rgba(215,235,255,.35)';
+      ctx.shadowBlur = f.type === 'child' ? 24 : 0;
+      ctx.shadowColor = f.type === 'child' ? 'rgba(76,255,196,.7)' : 'transparent';
+      ctx.beginPath();
+      ctx.moveTo(-26, 0);
+      ctx.quadraticCurveTo(-6, -16, 18, -10);
+      ctx.quadraticCurveTo(34, -4, 42, 0);
+      ctx.quadraticCurveTo(34, 4, 18, 10);
+      ctx.quadraticCurveTo(-6, 16, -26, 0);
+      ctx.moveTo(-26, 0);
+      ctx.lineTo(-40, -12);
+      ctx.moveTo(-26, 0);
+      ctx.lineTo(-40, 12);
+      ctx.moveTo(-2, -2);
+      ctx.arc(16, -2, 1.2, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    };
+
+    let raf = 0;
+    const render = () => {
+      ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      const g = ctx.createLinearGradient(0, 0, 0, window.innerHeight);
+      g.addColorStop(0, 'rgba(2, 6, 23, .95)');
+      g.addColorStop(.55, 'rgba(6, 25, 50, .92)');
+      g.addColorStop(1, 'rgba(0, 82, 115, .88)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+      fish.forEach((f, idx) => {
+        f.phase += 0.02 + idx * 0.001;
+        if (f.type === 'child') {
+          f.x += (pointer.x - f.x) * 0.045;
+          f.y += (pointer.y - f.y) * 0.04;
+        } else {
+          f.x += f.vx;
+          f.y += Math.sin(f.phase) * 0.35;
+          if (f.x > window.innerWidth + 80) f.x = -80;
+        }
+        drawFish(f);
+      });
+      raf = requestAnimationFrame(render);
+    };
+
+    resize();
+    render();
+    window.addEventListener('resize', resize);
+    overlay.addEventListener('pointermove', (e) => {
+      pointer.x = e.clientX;
+      pointer.y = e.clientY;
+    });
+    const closeIntro = () => {
+      overlay.classList.add('hidden');
+      cancelAnimationFrame(raf);
+    };
+    skipBtn?.addEventListener('click', closeIntro, { once: true });
+    setTimeout(closeIntro, 4500);
   },
 
   bindEvents() {
@@ -198,7 +307,7 @@ const App = {
   },
 
   setUserInfo(user) {
-    document.getElementById('sidebar-user-name').textContent = user?.displayName || user?.email?.split('@')[0] || 'Chưa đăng nhập';
+    document.getElementById('sidebar-user-name').textContent = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Chưa đăng nhập';
     document.getElementById('sidebar-user-email').textContent = user?.email || '—';
   },
 
@@ -236,7 +345,7 @@ const App = {
     this.state.isSaving = true;
     try {
       this.setSyncStatus('Đang lưu Firebase...');
-      await FirebaseService.saveJournal(this.state.user.uid, this.data);
+      await SupabaseService.saveJournal(this.state.user.id, this.data);
       this.setSyncStatus('Đã lưu lên Firebase');
     } catch (error) {
       console.error(error);
@@ -247,10 +356,10 @@ const App = {
     }
   },
 
-  async login(email, password) { return FirebaseService.login(email, password); },
-  async register(name, email, password) { return FirebaseService.register(name, email, password); },
-  async resetPassword(email) { return FirebaseService.resetPassword(email); },
-  async logout() { return FirebaseService.logout(); },
+  async login(email, password) { return SupabaseService.login(email, password); },
+  async register(name, email, password) { return SupabaseService.register(name, email, password); },
+  async resetPassword(email) { return SupabaseService.resetPassword(email); },
+  async logout() { return SupabaseService.logout(); },
 
   resolveImage(path) {
     if (!path) return '';
@@ -273,7 +382,6 @@ const App = {
     const icon = document.querySelector('#theme-toggle i');
     if (icon) icon.setAttribute('data-lucide', theme === 'dark' ? 'sun' : 'moon');
     lucide.createIcons();
-    this.initIntroSplash();
   },
 
   switchTab(tab) {
@@ -314,7 +422,6 @@ const App = {
     this.renderReview();
     this.updateMission();
     lucide.createIcons();
-    this.initIntroSplash();
   },
 
   marketStateLabel() {
@@ -719,196 +826,10 @@ const App = {
   },
 
   updateMission() {
-    const missionDist = document.getElementById('mission-dist');
-    const missionRisk = document.getElementById('mission-risk');
-    const missionSectors = document.getElementById('mission-sectors');
-    if (missionDist) missionDist.textContent = this.data.market.distDays;
-    if (missionRisk) missionRisk.textContent = this.marketStateLabel().title;
-    if (missionSectors) missionSectors.textContent = this.leadingSectorText();
-    const breathBar = document.getElementById('sidebar-breath-bar');
-    if (breathBar) breathBar.style.width = `${Math.max(15, this.data.mindset.calm * 10)}%`;
-  },
-
-  initIntroSplash() {
-    const splash = document.getElementById('intro-splash');
-    const canvas = document.getElementById('ocean-canvas');
-    const skip = document.getElementById('intro-skip');
-    if (!splash || !canvas) return;
-    const ctx = canvas.getContext('2d');
-    const pointer = this.state.intro.pointer;
-    const fishCount = 14;
-    const sharks = Array.from({ length: fishCount }, (_, i) => ({
-      x: Math.random(),
-      y: 0.12 + Math.random() * 0.76,
-      size: 0.6 + Math.random() * 0.9,
-      speed: 0.0005 + Math.random() * 0.0012,
-      phase: Math.random() * Math.PI * 2,
-      shade: i % 2 === 0 ? 'rgba(203,213,225,0.26)' : 'rgba(148,163,184,0.18)'
-    }));
-    const hero = { x: 0.5, y: 0.55, vx: 0, vy: 0, angle: 0 };
-
-    const resize = () => {
-      canvas.width = window.innerWidth * Math.min(window.devicePixelRatio || 1, 2);
-      canvas.height = window.innerHeight * Math.min(window.devicePixelRatio || 1, 2);
-      canvas.style.width = window.innerWidth + 'px';
-      canvas.style.height = window.innerHeight + 'px';
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.scale(Math.min(window.devicePixelRatio || 1, 2), Math.min(window.devicePixelRatio || 1, 2));
-    };
-
-    const drawShark = (x, y, scale, phase, fill) => {
-      ctx.save();
-      ctx.translate(x, y + Math.sin(phase) * 6);
-      ctx.scale(scale, scale);
-      ctx.fillStyle = fill;
-      ctx.beginPath();
-      ctx.moveTo(-48, 0);
-      ctx.quadraticCurveTo(-12, -20, 32, -8);
-      ctx.lineTo(52, -18);
-      ctx.lineTo(46, -3);
-      ctx.quadraticCurveTo(70, 0, 46, 4);
-      ctx.lineTo(52, 18);
-      ctx.lineTo(32, 8);
-      ctx.quadraticCurveTo(-12, 20, -48, 0);
-      ctx.closePath();
-      ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(-6, -7);
-      ctx.lineTo(10, -36);
-      ctx.lineTo(22, -8);
-      ctx.closePath();
-      ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(-18, 4);
-      ctx.lineTo(-40, 18);
-      ctx.lineTo(-28, 0);
-      ctx.lineTo(-40, -18);
-      ctx.closePath();
-      ctx.fill();
-      ctx.restore();
-    };
-
-    const drawHero = () => {
-      const x = hero.x * window.innerWidth;
-      const y = hero.y * window.innerHeight;
-      ctx.save();
-      ctx.translate(x, y);
-      ctx.rotate(hero.angle);
-      const glow = ctx.createRadialGradient(0, 0, 6, 0, 0, 58);
-      glow.addColorStop(0, 'rgba(255,244,114,0.95)');
-      glow.addColorStop(0.45, 'rgba(255,123,0,0.48)');
-      glow.addColorStop(1, 'rgba(255,123,0,0)');
-      ctx.fillStyle = glow;
-      ctx.beginPath();
-      ctx.arc(0, 0, 62, 0, Math.PI * 2);
-      ctx.fill();
-      const body = ctx.createLinearGradient(-28, -16, 30, 16);
-      body.addColorStop(0, '#fde047');
-      body.addColorStop(0.35, '#fb7185');
-      body.addColorStop(0.65, '#38bdf8');
-      body.addColorStop(1, '#22c55e');
-      ctx.fillStyle = body;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, 34, 20, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(-20, 0);
-      ctx.lineTo(-44, -18);
-      ctx.lineTo(-38, 0);
-      ctx.lineTo(-44, 18);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = 'rgba(255,255,255,0.9)';
-      ctx.beginPath();
-      ctx.arc(12, -4, 4.5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#0f172a';
-      ctx.beginPath();
-      ctx.arc(13, -4, 2.2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,0.55)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(-8, -8);
-      ctx.quadraticCurveTo(2, -16, 16, -10);
-      ctx.stroke();
-      ctx.restore();
-    };
-
-    const render = () => {
-      if (this.state.intro.dismissed) return;
-      const w = window.innerWidth;
-      const h = window.innerHeight;
-      const bg = ctx.createLinearGradient(0, 0, 0, h);
-      bg.addColorStop(0, '#02111f');
-      bg.addColorStop(0.5, '#06233e');
-      bg.addColorStop(1, '#03111d');
-      ctx.fillStyle = bg;
-      ctx.fillRect(0, 0, w, h);
-      for (let i = 0; i < 28; i++) {
-        const by = ((i * 67 + performance.now() * 0.03) % (h + 120)) - 60;
-        const bx = (i * 113) % w;
-        ctx.fillStyle = 'rgba(125,211,252,0.05)';
-        ctx.beginPath();
-        ctx.arc(bx, by, 1.8 + (i % 3), 0, Math.PI * 2);
-        ctx.fill();
-      }
-      sharks.forEach((s, idx) => {
-        s.x += s.speed;
-        if (s.x > 1.15) s.x = -0.15;
-        s.phase += 0.02 + idx * 0.0008;
-        drawShark(s.x * w, s.y * h, s.size, s.phase, s.shade);
-      });
-      const tx = pointer.x;
-      const ty = pointer.y;
-      hero.vx += (tx - hero.x) * 0.018;
-      hero.vy += (ty - hero.y) * 0.018;
-      sharks.forEach(s => {
-        const dx = hero.x - s.x;
-        const dy = hero.y - s.y;
-        const dist = Math.hypot(dx * 1.3, dy);
-        if (dist < 0.18) {
-          hero.vx += dx * 0.003;
-          hero.vy += dy * 0.003;
-        }
-      });
-      hero.vx *= 0.92;
-      hero.vy *= 0.92;
-      hero.x = Math.max(0.08, Math.min(0.92, hero.x + hero.vx));
-      hero.y = Math.max(0.18, Math.min(0.82, hero.y + hero.vy));
-      hero.angle = Math.atan2(hero.vy, hero.vx || 0.0001) * 0.35;
-      drawHero();
-      this.state.intro.raf = requestAnimationFrame(render);
-    };
-
-    const dismiss = () => {
-      if (this.state.intro.dismissed) return;
-      this.state.intro.dismissed = true;
-      splash.classList.add('hide');
-      setTimeout(() => splash.remove(), 900);
-      if (this.state.intro.raf) cancelAnimationFrame(this.state.intro.raf);
-      window.removeEventListener('resize', resize);
-    };
-
-    const onMove = (e) => {
-      pointer.x = e.clientX / window.innerWidth;
-      pointer.y = e.clientY / window.innerHeight;
-    };
-    resize();
-    render();
-    window.addEventListener('resize', resize);
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('touchmove', (e) => {
-      const t = e.touches?.[0];
-      if (!t) return;
-      pointer.x = t.clientX / window.innerWidth;
-      pointer.y = t.clientY / window.innerHeight;
-    }, { passive: true });
-    if (skip) skip.addEventListener('click', dismiss);
-    splash.addEventListener('click', (e) => {
-      if (e.target === splash || e.target.classList.contains('intro-overlay')) dismiss();
-    });
-    setTimeout(dismiss, 4200);
+    document.getElementById('mission-dist').textContent = this.data.market.distDays;
+    document.getElementById('mission-risk').textContent = this.marketStateLabel().title;
+    document.getElementById('mission-sectors').textContent = this.leadingSectorText();
+    document.getElementById('sidebar-breath-bar').style.width = `${Math.max(15, this.data.mindset.calm * 10)}%`;
   },
 
   prefillTradeFromWatchlist(id) {
@@ -993,8 +914,8 @@ const App = {
       let actualImage = document.getElementById('trade-actual-url').value || document.getElementById('trade-actual-preview').src || '';
       const theoryFile = document.getElementById('trade-theory-file').files?.[0];
       const actualFile = document.getElementById('trade-actual-file').files?.[0];
-      if (theoryFile && this.state.user) theoryImage = await FirebaseService.uploadFile(this.state.user.uid, theoryFile, 'trades/theory');
-      if (actualFile && this.state.user) actualImage = await FirebaseService.uploadFile(this.state.user.uid, actualFile, 'trades/actual');
+      if (theoryFile) theoryImage = await SupabaseService.uploadFile(this.state.user.id, theoryFile, 'trades/theory');
+      if (actualFile) actualImage = await SupabaseService.uploadFile(this.state.user.id, actualFile, 'trades/actual');
 
       const obj = {
         id: this.state.editingTradeId || 't' + Date.now(),
@@ -1100,7 +1021,7 @@ const App = {
     try {
       let patternImage = document.getElementById('pattern-image-url').value || document.getElementById('pattern-image-preview').src || '';
       const patternFile = document.getElementById('pattern-image-file').files?.[0];
-      if (patternFile && this.state.user) patternImage = await FirebaseService.uploadFile(this.state.user.uid, patternFile, 'patterns');
+      if (patternFile) patternImage = await SupabaseService.uploadFile(this.state.user.id, patternFile, 'patterns');
       const obj = {
         id: this.state.editingPatternId || 'p' + Date.now(),
         name: document.getElementById('pattern-name').value.trim(),
@@ -1164,7 +1085,7 @@ const AuthUI = {
     document.getElementById('auth-tab-login').classList.toggle('active', mode === 'login');
     document.getElementById('auth-tab-register').classList.toggle('active', mode === 'register');
     document.getElementById('auth-name-wrap').style.display = mode === 'register' ? 'grid' : 'none';
-    App.showAuthMessage(mode === 'login' ? 'Đăng nhập để đồng bộ dữ liệu cá nhân, ảnh và nhật ký lên Firebase.' : 'Tạo tài khoản mới để mỗi người có dữ liệu riêng trên Firebase.');
+    App.showAuthMessage(mode === 'login' ? 'Đăng nhập để đồng bộ dữ liệu cá nhân, ảnh và nhật ký lên Supabase.' : 'Tạo tài khoản mới để mỗi người có dữ liệu riêng trên Supabase.');
   },
 
   async submit() {

@@ -1,55 +1,209 @@
 <!DOCTYPE html>
-<html>
+<html lang="vi">
 <head>
-  <title>Cacon Stock PRO MAX</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CACON Trading Journal Supabase Edition</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50:'#ecfdf5',100:'#d1fae5',200:'#a7f3d0',300:'#6ee7b7',400:'#34d399',500:'#10b981',600:'#059669',700:'#047857',800:'#065f46',900:'#064e3b'
+            }
+          },
+          boxShadow: { soft: '0 8px 30px rgba(2,6,23,.08)' }
+        }
+      },
+      darkMode: 'class'
+    }
+  </script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  
+  <link rel="stylesheet" href="style.css" />
 </head>
-<body class="bg-gray-900 text-white p-6">
+<body class="bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
+  
+  <div id="auth-overlay" class="auth-overlay">
+    <div class="auth-card">
+      <div class="flex items-center gap-3 mb-6">
+        <div class="w-12 h-12 rounded-2xl bg-brand-100 text-brand-700 dark:bg-brand-500/15 flex items-center justify-center">
+          <i data-lucide="shield-check" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <div class="font-semibold text-2xl leading-7 font-mono">CACON STOCK</div>
+          <div class="text-sm text-zinc-500">Đăng nhập Supabase Engine</div>
+        </div>
+      </div>
 
-<div id="login-box">
-  <h2 class="text-xl mb-2">Login</h2>
-  <input id="email" placeholder="Email" class="text-black p-2 mb-2"><br>
-  <input id="password" type="password" placeholder="Password" class="text-black p-2 mb-2"><br>
-  <button onclick="handleLogin()" class="bg-green-600 px-4 py-2">Login</button>
-</div>
+      <div class="flex gap-2 mb-5">
+        <button id="auth-tab-login" class="auth-tab active" onclick="AuthUI.switch('login')">Đăng nhập</button>
+        <button id="auth-tab-register" class="auth-tab" onclick="AuthUI.switch('register')">Tạo tài khoản</button>
+      </div>
 
-<div id="app" style="display:none">
+      <div class="grid gap-4">
+        <label class="field-block" id="auth-name-wrap"><span>Họ tên</span><input id="auth-name" class="field-input" placeholder="Nguyễn Văn A"></label>
+        <label class="field-block"><span>Email</span><input id="auth-email" type="email" class="field-input" placeholder="ban@email.com"></label>
+        <label class="field-block"><span>Mật khẩu</span><input id="auth-password" type="password" class="field-input" placeholder="Tối thiểu 6 ký tự"></label>
+        <button class="btn-primary w-full py-3" onclick="AuthUI.submit()">Truy cập trạm giao dịch</button>
+      </div>
+      <div id="auth-message" class="auth-message mt-4">Sẵn sàng đồng bộ dữ liệu vĩnh viễn.</div>
+    </div>
+  </div>
 
-<h1 class="text-2xl mb-4">Cacon Stock PRO MAX</h1>
+  <div class="min-h-screen flex app-shell app-locked">
+    <aside class="w-[280px] shrink-0 border-r border-zinc-200 bg-white px-5 py-5 dark:border-zinc-800 dark:bg-zinc-950 hidden lg:flex lg:flex-col gap-5">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-brand-500 text-white flex items-center justify-center">
+          <i data-lucide="zap" class="w-6 h-6"></i>
+        </div>
+        <div class="font-bold text-xl uppercase font-mono tracking-tighter">CACON<span class="text-brand-500">STOCK</span></div>
+      </div>
 
-<!-- Dashboard -->
-<div class="grid grid-cols-4 gap-4 mb-6">
-  <div class="bg-green-700 p-3">Winrate: <span id="winrate"></span></div>
-  <div class="bg-blue-700 p-3">Trades: <span id="totalTrades"></span></div>
-  <div class="bg-purple-700 p-3">Avg Win: <span id="avgWin"></span></div>
-  <div class="bg-red-700 p-3">Avg Loss: <span id="avgLoss"></span></div>
-</div>
+      <nav class="grid gap-1 text-sm font-semibold" id="sidebar-nav">
+        <button class="side-btn active" data-tab="dashboard"><i data-lucide="layout-dashboard"></i>Dashboard</button>
+        <button class="side-btn" data-tab="radar"><i data-lucide="radar"></i>Radar Center</button>
+        <button class="side-btn" data-tab="scan"><i data-lucide="clipboard-list"></i>Watchlist Quản trị</button>
+        <button class="side-btn" data-tab="journal"><i data-lucide="book-open"></i>Nhật ký lệnh</button>
+        <button class="side-btn" data-tab="sizing"><i data-lucide="calculator"></i>Position Sizing</button>
+        <button class="side-btn" data-tab="patterns"><i data-lucide="shapes"></i>Thư viện Wiki</button>
+        <button class="side-btn" data-tab="market"><i data-lucide="newspaper"></i>Thị trường</button>
+        <button class="side-btn" data-tab="mindset"><i data-lucide="brain"></i>Tâm lý giao dịch</button>
+      </nav>
 
-<!-- Watchlist -->
-<h2 class="text-lg">Watchlist</h2>
-<table class="w-full mb-6">
-<thead><tr><th>Mã</th><th>Score</th><th>Action</th></tr></thead>
-<tbody id="watchlist"></tbody>
-</table>
+      <section class="card p-4 mt-auto">
+        <div id="sidebar-user-name" class="font-bold text-sm truncate">Trader Cacon</div>
+        <div id="sidebar-user-email" class="text-xs text-zinc-500 truncate mb-3">—</div>
+        <button class="btn-secondary w-full text-xs" onclick="App.logout()"><i data-lucide="log-out"></i>Thoát</button>
+      </section>
+    </aside>
 
-<!-- Kelly -->
-<h2>Kelly</h2>
-<input id="win" placeholder="Win %" class="text-black p-2">
-<select id="rr" class="text-black p-2">
-<option value="2">2:1</option>
-<option value="3">3:1</option>
-</select>
-<select id="mode" class="text-black p-2">
-<option value="quarter">1/4</option>
-<option value="half">1/2</option>
-</select>
-<button onclick="calcKelly()" class="bg-blue-600 px-3 py-2">Calc</button>
-<div id="kelly"></div>
+    <div class="flex-1 min-w-0">
+      <header class="sticky top-0 z-30 border-b border-zinc-200 bg-white/90 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/90">
+        <div class="px-6 py-4 flex items-center justify-between gap-3">
+          <h1 id="tab-title" class="text-2xl font-bold uppercase tracking-tight">Dashboard</h1>
+          
+          <div class="flex items-center gap-3">
+            <div id="sync-status" class="hidden lg:flex items-center gap-2 rounded-2xl bg-zinc-100 px-3 py-1.5 text-[10px] font-bold uppercase dark:bg-zinc-900">
+              <span class="w-2 h-2 rounded-full bg-brand-500 animate-pulse"></span> Supabase Connected
+            </div>
+            <button class="btn-primary !py-2 !px-5 text-xs" onclick="App.openTradeModal()"><i data-lucide="plus"></i> Tạo lệnh mới</button>
+            <button class="icon-btn !w-9 !h-9" id="theme-toggle"><i data-lucide="moon"></i></button>
+          </div>
+        </div>
+      </header>
 
-</div>
+      <main class="p-6 space-y-6">
+        
+        <section data-screen="dashboard" class="screen space-y-6">
+          <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-5" id="dashboard-kpis"></div>
+          
+          <div class="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+            <div class="card p-6">
+               <div class="section-head">
+                 <div><h2 class="uppercase">Cơ hội bùng nổ hôm nay</h2><p>Các mã vừa vượt điểm Pivot với Volume xác nhận.</p></div>
+               </div>
+               <div id="dash-breakout-items" class="grid gap-4">
+                 </div>
+            </div>
+            
+            <div class="card p-6 flex flex-col">
+              <div class="section-head">
+                <div><h2 class="uppercase">Đường cong tài sản</h2><p>Tăng trưởng dựa trên vốn 1 tỷ VNĐ mẫu.</p></div>
+              </div>
+              <div class="flex-1 min-h-[250px] w-full">
+                <canvas id="equityChartDash"></canvas>
+              </div>
+            </div>
+          </div>
+        </section>
 
-<script src="supabase.js"></script>
-<script src="app.js"></script>
+        <section data-screen="radar" class="screen hidden space-y-6">
+           <div class="grid grid-cols-1 md:grid-cols-5 gap-4 items-start">
+             <div class="space-y-4">
+               <h3 class="text-brand-600 font-black text-xs uppercase border-b border-brand-500/20 pb-2 flex items-center gap-2">
+                 <i data-lucide="target" class="w-4 h-4"></i> Gần điểm mua
+               </h3>
+               <div id="radar-near-buy" class="space-y-3"></div>
+             </div>
+             <div class="space-y-4">
+               <h3 class="text-amber-500 font-black text-xs uppercase border-b border-amber-500/20 pb-2 flex items-center gap-2">
+                 <i data-lucide="zap" class="w-4 h-4"></i> Breakout nay
+               </h3>
+               <div id="radar-breakout" class="space-y-3"></div>
+             </div>
+             <div class="space-y-4">
+               <h3 class="text-blue-500 font-black text-xs uppercase border-b border-blue-500/20 pb-2 flex items-center gap-2">
+                 <i data-lucide="eye" class="w-4 h-4"></i> Đang theo dõi
+               </h3>
+               <div id="radar-watching" class="space-y-3"></div>
+             </div>
+             <div class="space-y-4">
+               <h3 class="text-rose-500 font-black text-xs uppercase border-b border-rose-500/20 pb-2 flex items-center gap-2">
+                 <i data-lucide="alert-triangle" class="w-4 h-4"></i> Cảnh báo lỗi
+               </h3>
+               <div id="radar-failed" class="space-y-3"></div>
+             </div>
+             <div class="space-y-4">
+               <h3 class="text-purple-500 font-black text-xs uppercase border-b border-purple-500/20 pb-2 flex items-center gap-2">
+                 <i data-lucide="gem" class="w-4 h-4"></i> Leader dài hạn
+               </h3>
+               <div id="radar-longterm" class="space-y-3"></div>
+             </div>
+           </div>
+        </section>
+
+        <section data-screen="scan" class="screen hidden space-y-6">
+          <div class="card p-6 overflow-hidden">
+            <div class="section-head !mb-6">
+               <div><h2 class="uppercase">Watchlist Quản trị quyết định</h2><p>Hệ thống chấm điểm 100 và phân loại ưu tiên A/B/C.</p></div>
+               <button class="btn-primary" onclick="App.openWatchlistModal()"><i data-lucide="plus"></i> Thêm mã</button>
+            </div>
+            <div class="overflow-x-auto rounded-xl border border-zinc-100 dark:border-zinc-800">
+              <table class="w-full text-sm text-left">
+                <thead class="bg-zinc-50 dark:bg-zinc-900 font-bold uppercase text-[10px] text-zinc-500">
+                  <tr>
+                    <th>Mã</th><th>Nhóm</th><th>Setup</th><th>Buy Point</th><th>Current</th><th>% Tới</th><th>Score</th><th>Status</th><th>Kế hoạch</th>
+                  </tr>
+                </thead>
+                <tbody id="watchlist-table-body" class="divide-y divide-zinc-100 dark:divide-zinc-800">
+                  </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section data-screen="journal" class="screen hidden space-y-6">
+          <div class="card p-5 overflow-auto">
+            <table class="w-full text-sm text-left">
+              <thead class="bg-zinc-50 dark:bg-zinc-900 uppercase">
+                <tr><th>Mã</th><th>Ngày</th><th>Chiến lược</th><th>Setup</th><th>Entry</th><th>Exit</th><th>P/L %</th><th>Status</th></tr>
+              </thead>
+              <tbody id="journal-list"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section data-screen="sizing" class="screen hidden"><div class="card p-5" id="sizing-standalone"></div></section>
+        <section data-screen="patterns" class="screen hidden space-y-6"><div id="wiki-grid" class="grid gap-6 lg:grid-cols-3"></div></section>
+        <section data-screen="market" class="screen hidden space-y-6"><div id="market-container"></div></section>
+        <section data-screen="mindset" class="screen hidden space-y-6"><div id="psychology-container"></div></section>
+
+      </main>
+    </div>
+  </div>
+
+  <div id="trade-modal" class="modal hidden">...</div>
+  <div id="watchlist-modal" class="modal hidden">...</div>
+  <div id="pattern-modal" class="modal hidden">...</div>
+  <div id="image-zoom-modal" class="modal hidden" onclick="App.closeImageZoom(event)"><div class="zoom-card"><img id=\"zoomed-image\" /></div></div>
+
+  <script src="supabase.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>

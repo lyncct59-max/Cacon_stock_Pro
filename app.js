@@ -12,21 +12,19 @@ const App = {
     this.setToday();
     this.updateRangeValues();
     if (!this.sb) {
-      this.showLoginAfterIntro();
+      const login = document.getElementById('login-modal');
+      if (login) login.classList.remove('hidden');
       return this.toast('Hãy cấu hình Supabase trong supabase.js', true);
     }
-    this.startIntroFlow();
     this.sb.auth.onAuthStateChange(async (_e, session) => { await this.handleSession(session); });
-    this.sb.auth.getSession().then(({data}) => { this._initialSession = data.session; });
+    this.sb.auth.getSession().then(({data}) => this.handleSession(data.session));
   },
 
   bindUI() {
     document.getElementById('auth-tab-login').onclick = () => this.setAuthMode('login');
     document.getElementById('auth-tab-register').onclick = () => this.setAuthMode('register');
     document.getElementById('auth-submit-btn').onclick = () => this.submitAuth();
-    document.getElementById('auth-reset-btn').onclick = () => this.resetPassword();
-    const enterBtn=document.getElementById('intro-enter-btn'); if(enterBtn) enterBtn.onclick=()=>this.hideIntroSplash();
-    document.getElementById('logout-btn').onclick = () => this.sb.auth.signOut();
+    document.getElementById('auth-reset-btn').onclick = () => this.resetPassword();    document.getElementById('logout-btn').onclick = () => this.sb.auth.signOut();
     document.querySelectorAll('.side-btn').forEach(btn => btn.onclick = () => this.switchTab(btn.dataset.tab));
     document.querySelectorAll('[data-go]').forEach(btn => btn.onclick = () => this.switchTab(btn.dataset.go));
     ['btn-open-trade','btn-open-trade-2'].forEach(id => document.getElementById(id).onclick = () => this.openTradeModal());
@@ -97,12 +95,8 @@ const App = {
     const { error } = await this.sb.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin + window.location.pathname });
     if (error) this.setAuthMessage(error.message, true); else this.setAuthMessage('Đã gửi email đặt lại mật khẩu.');
   },
-  async handleSession(session, introFinished = false) {
+  async handleSession(session) {
     const login = document.getElementById('login-modal');
-    if (!introFinished && document.getElementById('intro-splash')) {
-      this._initialSession = session ?? null;
-      return;
-    }
     if (!session?.user) {
       this.user = null;
       if (login) login.classList.remove('hidden');
@@ -265,7 +259,7 @@ const App = {
   async savePattern(){try{const img=document.getElementById('pattern-image-file').files?.[0]; if(img)this.patternImageUrl=await this.uploadFile(img,'patterns'); const payload={user_id:this.user.id,name:document.getElementById('pattern-name').value.trim(),strategy:document.getElementById('pattern-strategy').value.trim(),description:document.getElementById('pattern-description').value.trim(),conditions:document.getElementById('pattern-conditions').value.trim(),triggers:document.getElementById('pattern-triggers').value.trim(),image_url:this.patternImageUrl||''}; let error; if(this.editingPatternId){({error}=await this.sb.from('patterns').update(payload).eq('id',this.editingPatternId));} else {({error}=await this.sb.from('patterns').insert(payload));} if(error)throw error; await this.loadAll(); this.closePatternModal(); this.toast(this.editingPatternId?'Đã cập nhật setup.':'Đã lưu setup.');}catch(e){this.toast('Lỗi lưu setup: '+(e.message||'Không lưu được setup.'),true);}},
   async deletePattern(id){if(!confirm('Xóa setup này?'))return; const {error}=await this.sb.from('patterns').delete().eq('id',id); if(error)return this.toast('Lỗi xóa setup: '+error.message,true); await this.loadAll(); this.toast('Đã xóa setup.');}
 
-  hideIntroSplashDelayed(){ setTimeout(()=>this.hideIntroSplash(), 1200); },
+  hideIntroSplashDelayed(){ setTimeout(()=>this.finishIntroAndRoute(), 1200); },
   hideIntroSplash(){ const el=document.getElementById('intro-splash'); if(!el) return; el.classList.add('hide'); setTimeout(()=>{ if(el) el.remove(); }, 500); },
   renderRoutine(){ const list=document.getElementById('trader-routine-list'); if(!list) return; const items=[['06:30 - 07:00','Xem thị trường quốc tế, tin vĩ mô và trạng thái hợp đồng tương lai.'],['07:00 - 07:30','Rà soát CafeF / FireAnt, lọc cổ phiếu mạnh, cập nhật watchlist.'],['07:30 - 08:00','Đọc playbook, xem chart lý thuyết, đánh dấu các setup A/B.'],['08:00 - 08:15','Bài thở 4-7-8, check-in tâm lý, khóa risk ngày giao dịch.'],['Trong phiên','Chỉ hành động theo kế hoạch. Không FOMO, không gồng lỗ, không trung bình giá xuống.'],['Sau phiên','Cập nhật nhật ký, lưu chart thực tế, review sai lầm và cơ hội bỏ lỡ.']]; list.innerHTML = items.map(it=>`<div class="mini-row"><span><strong>${it[0]}</strong><br><span class="text-slate-500 text-sm">${it[1]}</span></span></div>`).join(''); },
   startBreathing(){ this.stopBreathing(); const i=Number(document.getElementById('breath-in')?.value||4), h=Number(document.getElementById('breath-hold')?.value||7), o=Number(document.getElementById('breath-out')?.value||8); const phases=[['Hít vào',i],['Giữ',h],['Thở ra',o]]; let round=0, phaseIdx=0, remain=phases[0][1]; const phaseEl=document.getElementById('breath-phase'), timerEl=document.getElementById('breath-timer'); const tick=()=>{ phaseEl.textContent=phases[phaseIdx][0]; timerEl.textContent=`Còn ${remain}s · vòng ${round+1}/5`; remain--; if(remain<0){ phaseIdx++; if(phaseIdx>=phases.length){ phaseIdx=0; round++; if(round>=5){ this.stopBreathing(true); return; } } remain=phases[phaseIdx][1]; } }; tick(); this._breathTimer=setInterval(tick,1000); },

@@ -11,9 +11,13 @@ const App = {
     this.switchTab('dashboard');
     this.setToday();
     this.updateRangeValues();
-    if (!this.sb) return this.toast('Hãy cấu hình Supabase trong supabase.js', true);
+    if (!this.sb) {
+      this.showLoginAfterIntro();
+      return this.toast('Hãy cấu hình Supabase trong supabase.js', true);
+    }
+    this.startIntroFlow();
     this.sb.auth.onAuthStateChange(async (_e, session) => { await this.handleSession(session); });
-    this.sb.auth.getSession().then(({data}) => this.handleSession(data.session));
+    this.sb.auth.getSession().then(({data}) => { this._initialSession = data.session; });
   },
 
   bindUI() {
@@ -93,15 +97,20 @@ const App = {
     const { error } = await this.sb.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin + window.location.pathname });
     if (error) this.setAuthMessage(error.message, true); else this.setAuthMessage('Đã gửi email đặt lại mật khẩu.');
   },
-  async handleSession(session) {
+  async handleSession(session, introFinished = false) {
+    const login = document.getElementById('login-modal');
+    if (!introFinished && document.getElementById('intro-splash')) {
+      this._initialSession = session ?? null;
+      return;
+    }
     if (!session?.user) {
       this.user = null;
-      document.getElementById('login-modal').classList.remove('hidden');
+      if (login) login.classList.remove('hidden');
       document.getElementById('sync-status').textContent = 'Chưa đăng nhập';
       return;
     }
     this.user = session.user;
-    document.getElementById('login-modal').classList.add('hidden');
+    if (login) login.classList.add('hidden');
     document.getElementById('sidebar-user-name').textContent = this.user.user_metadata?.full_name || this.user.email.split('@')[0];
     document.getElementById('sync-status').textContent = 'Đang đồng bộ...';
     await this.ensureProfile();
@@ -155,7 +164,7 @@ const App = {
     this.data.market = (await this.sb.from('settings').select('*').eq('user_id', this.user.id).maybeSingle()).data || {dist_days:0,sentiment:'Trung tính',sectors:'',note:''};
     this.data.mindset = (await this.sb.from('mindset').select('*').eq('user_id', this.user.id).order('created_at',{ascending:false}).limit(10)).data || [];
     this.data.reviews = (await this.sb.from('reviews').select('*').eq('user_id', this.user.id).maybeSingle()).data || {};
-    this.fillPatternSelectors(); this.renderDashboard(); this.renderWatchlists(); this.renderJournal(); this.renderPatterns(); this.renderMarket(); this.renderMindsetHistory(); this.renderReview(); this.renderRoutine(); this.hideIntroSplashDelayed();
+    this.fillPatternSelectors(); this.renderDashboard(); this.renderWatchlists(); this.renderJournal(); this.renderPatterns(); this.renderMarket(); this.renderMindsetHistory(); this.renderReview(); this.renderRoutine();
   },
 
   fillPatternSelectors() {

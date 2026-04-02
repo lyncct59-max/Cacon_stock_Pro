@@ -1,4 +1,6 @@
 const STORAGE_KEY = 'cacon-trading-firebase-cache';
+const ADMIN_EMAILS = ['minhtien45x3@gmail.com', 'lynctt59@gmail.com', 'lynct59@gmail.com'];
+
 
 const FirebaseService = {
   get ready() {
@@ -40,6 +42,12 @@ const FirebaseService = {
     }, { merge: true });
   },
 
+  async getUserProfile(uid) {
+    if (!uid) return null;
+    const snap = await db.collection('users').doc(uid).get();
+    return snap.exists ? snap.data() : null;
+  },
+
   async loadJournal(uid) {
     const snap = await db.collection('trading_journals').doc(uid).get();
     return snap.exists ? snap.data()?.payload : null;
@@ -73,6 +81,9 @@ const App = {
     user: null,
     saveTimer: null,
     isSaving: false,
+    isAdmin: false,
+    editingReminderIndex: null,
+    userProfile: null,
     breathing: { timer: null }
   },
 
@@ -125,6 +136,11 @@ const App = {
           note: 'Đang giữ, theo dõi phản ứng quanh MA10.', checklist: ['Nền chặt', 'Giữ stop rõ ràng'], theoryImage: '', actualImage: ''
         }
       ],
+      dashboardReminders: [
+        { id: 'r1', title: 'Kiểm soát phản ứng', image: 'reminder_poster_focus.png' },
+        { id: 'r2', title: 'Cắt lỗ nhanh', image: 'reminder_poster_2.png' },
+        { id: 'r3', title: 'Ưu tiên setup', image: 'reminder_poster_3.png' }
+      ],
       market: { distDays: 2, sentiment: 'Tích cực', sectors: 'Chứng khoán, Công nghệ', note: 'Có thể giải ngân thăm dò với setup mạnh.' },
       mindset: { energy: 7, calm: 8, fomo: 4, confidence: 6, preflight: 'Kiểm tra market pulse, chỉ chọn A/B setup, không mua đuổi quá 2%.', breathIn: 4, breathHold: 7, breathOut: 8 },
       review: { weekly: 'Tuần này kiên nhẫn chờ setup tốt hơn.', monthly: 'Tháng này cần giảm số lệnh vào sớm.' }
@@ -148,6 +164,8 @@ const App = {
         try {
           this.state.user = user || null;
           if (!user) {
+            this.state.isAdmin = false;
+            this.state.userProfile = null;
             this.lockApp(true);
             this.showIntroScreen();
             this.setUserInfo(null);
@@ -159,6 +177,8 @@ const App = {
           this.setUserInfo(user);
           this.setSyncStatus('Đang tải dữ liệu...');
           await FirebaseService.ensureProfile(user);
+          this.state.userProfile = await FirebaseService.getUserProfile(user.uid);
+          this.state.isAdmin = this.isAdminUser(user, this.state.userProfile);
           const cloudData = await FirebaseService.loadJournal(user.uid);
           this.data = cloudData || this.demo();
           this.recomputeTrades();
@@ -185,7 +205,7 @@ const App = {
     ['filter-start','filter-end','filter-status','filter-result'].forEach(id => document.getElementById(id).addEventListener('input', () => this.renderJournalTable()));
     ['energy-input','calm-input','fomo-input','confidence-input'].forEach(id => document.getElementById(id).addEventListener('input', () => this.updateMindsetValues()));
     ['breath-in','breath-hold','breath-out'].forEach(id => document.getElementById(id).addEventListener('input', () => this.updateBreathSummary()));
-    ['trade-theory-file','trade-actual-file','pattern-image-file'].forEach(id => document.getElementById(id).addEventListener('change', (e) => this.handleFilePreview(e)));
+    ['trade-theory-file','trade-actual-file','pattern-image-file','reminder-image-file'].forEach(id => { const el = document.getElementById(id); if (el) el.addEventListener('change', (e) => this.handleFilePreview(e)); });
     ['auth-email','auth-password','auth-name'].forEach(id => { const el = document.getElementById(id); if (el) el.addEventListener('keydown', (e) => { if (e.key === 'Enter') AuthUI.submit(); }); });
   },
 
@@ -301,6 +321,25 @@ const App = {
     document.getElementById('sync-status').textContent = text;
   },
 
+  isAdminUser(user, profile = null) {
+    const email = (user?.email || profile?.email || '').trim().toLowerCase();
+    return !!(email && (ADMIN_EMAILS.includes(email) || String(profile?.role || '').toLowerCase() === 'admin'));
+  },
+
+  getDefaultReminders() {
+    return [
+      { id: 'r1', title: 'Kiểm soát phản ứng', image: 'reminder_poster_focus.png' },
+      { id: 'r2', title: 'Cắt lỗ nhanh', image: 'reminder_poster_2.png' },
+      { id: 'r3', title: 'Ưu tiên setup', image: 'reminder_poster_3.png' }
+    ];
+  },
+
+  ensureDashboardReminders() {
+    if (!Array.isArray(this.data.dashboardReminders) || !this.data.dashboardReminders.length) {
+      this.data.dashboardReminders = this.getDefaultReminders();
+    }
+  },
+
   loadLocalCache() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -406,6 +445,7 @@ const App = {
     this.renderMarket();
     this.renderMindset();
     this.renderReview();
+    this.renderDashboardReminders();
     this.updateMission();
     lucide.createIcons();
   },
@@ -526,6 +566,86 @@ const App = {
           ${compact ? '' : `<button class="btn-secondary !py-2 !px-4" onclick="App.openWatchlistModal('${w.id}')">Sửa</button><button class="btn-secondary !py-2 !px-4" onclick="App.deleteWatchlist('${w.id}')">Xóa</button>`}
         </div>
       </div>`).join('') || '<div class="text-sm muted">Chưa có dữ liệu.</div>';
+  },
+
+  renderDashboardReminders() {
+    this.ensureDashboardReminders();
+    const host = document.getElementById('trader-reminder-grid');
+    const adminBox = document.getElementById('dashboard-reminder-admin');
+    if (!host || !adminBox) return;
+
+    adminBox.innerHTML = this.state.isAdmin
+      ? `<button class="btn-secondary" onclick="App.openReminderModal()"><i data-lucide="image-plus"></i>Thêm ảnh nhắc nhở</button>`
+      : '';
+
+    host.innerHTML = this.data.dashboardReminders.map((item, index) => {
+      const image = this.resolveImage(item.image || '');
+      return `
+      <article class="reminder-poster-card">
+        ${this.state.isAdmin ? `<div class="reminder-card-toolbar"><button class="mini-action-btn" onclick="App.openReminderModal('${index}')">Sửa</button><button class="mini-action-btn danger" onclick="App.deleteReminder('${index}')">Xóa</button></div>` : ''}
+        <img src="${image}" alt="${item.title || 'Poster nhắc nhở trader'}" loading="lazy" onclick="App.zoomImage('${image}')">
+        <div class="reminder-poster-caption">${item.title || 'Nhắc nhở trader'}</div>
+      </article>`;
+    }).join('');
+  },
+
+  openReminderModal(index = null) {
+    if (!this.state.isAdmin) return;
+    this.ensureDashboardReminders();
+    this.state.editingReminderIndex = index === null ? null : Number(index);
+    const item = this.state.editingReminderIndex != null ? this.data.dashboardReminders[this.state.editingReminderIndex] : { title: '', image: '' };
+    document.getElementById('reminder-title').value = item?.title || '';
+    document.getElementById('reminder-image-url').value = item?.image || '';
+    document.getElementById('reminder-image-preview').src = this.resolveImage(item?.image || '');
+    document.getElementById('reminder-image-file').value = '';
+    document.getElementById('reminder-modal-title').textContent = this.state.editingReminderIndex != null ? 'Sửa ảnh nhắc nhở' : 'Chèn ảnh nhắc nhở';
+    document.getElementById('reminder-modal').classList.remove('hidden');
+  },
+
+  closeReminderModal() {
+    document.getElementById('reminder-modal').classList.add('hidden');
+  },
+
+  clearReminderImage() {
+    document.getElementById('reminder-image-url').value = '';
+    document.getElementById('reminder-image-file').value = '';
+    document.getElementById('reminder-image-preview').src = '';
+  },
+
+  async saveReminder() {
+    if (!this.state.isAdmin) return;
+    try {
+      this.ensureDashboardReminders();
+      let image = document.getElementById('reminder-image-url').value || document.getElementById('reminder-image-preview').src || '';
+      const imageFile = document.getElementById('reminder-image-file').files?.[0];
+      if (imageFile) image = await FirebaseService.uploadFile(this.state.user.uid, imageFile, 'dashboard-reminders');
+      if (!image) throw new Error('Vui lòng chọn ảnh hoặc dán URL ảnh.');
+      const item = {
+        id: this.state.editingReminderIndex != null ? this.data.dashboardReminders[this.state.editingReminderIndex].id : 'r' + Date.now(),
+        title: document.getElementById('reminder-title').value.trim() || 'Nhắc nhở trader',
+        image
+      };
+      if (this.state.editingReminderIndex != null) this.data.dashboardReminders[this.state.editingReminderIndex] = item;
+      else this.data.dashboardReminders.unshift(item);
+      this.persist();
+      this.closeReminderModal();
+      this.renderDashboardReminders();
+      lucide.createIcons();
+    } catch (error) {
+      alert('Không lưu được ảnh nhắc nhở: ' + (error.message || error));
+    }
+  },
+
+  deleteReminder(index) {
+    if (!this.state.isAdmin) return;
+    this.ensureDashboardReminders();
+    const idx = Number(index);
+    if (Number.isNaN(idx) || !this.data.dashboardReminders[idx]) return;
+    if (!confirm('Xóa ảnh nhắc nhở này?')) return;
+    this.data.dashboardReminders.splice(idx, 1);
+    this.persist();
+    this.renderDashboardReminders();
+    lucide.createIcons();
   },
 
   renderScan() {
@@ -1058,6 +1178,7 @@ const App = {
       if (e.target.id === 'trade-theory-file') document.getElementById('trade-theory-preview').src = reader.result;
       if (e.target.id === 'trade-actual-file') document.getElementById('trade-actual-preview').src = reader.result;
       if (e.target.id === 'pattern-image-file') document.getElementById('pattern-image-preview').src = reader.result;
+      if (e.target.id === 'reminder-image-file') document.getElementById('reminder-image-preview').src = reader.result;
     };
     reader.readAsDataURL(file);
   }
@@ -1069,7 +1190,7 @@ const AuthUI = {
     document.getElementById('auth-tab-login').classList.toggle('active', mode === 'login');
     document.getElementById('auth-tab-register').classList.toggle('active', mode === 'register');
     document.getElementById('auth-name-wrap').style.display = mode === 'register' ? 'grid' : 'none';
-    App.showAuthMessage(mode === 'login' ? 'Đăng nhập để đồng bộ dữ liệu cá nhân, ảnh và nhật ký lên Firebase.' : 'Tạo tài khoản mới để mỗi người có dữ liệu riêng trên Firebase.');
+    App.showAuthMessage(mode === 'login' ? 'Đăng nhập để mở trạm giao dịch và tiếp tục dữ liệu cá nhân.' : 'Tạo tài khoản mới để lưu hành trình giao dịch của riêng bạn.');
   },
 
   async submit() {

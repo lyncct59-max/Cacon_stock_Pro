@@ -136,12 +136,10 @@ const App = {
     this.recomputeTrades();
     this.applyTheme(this.state.theme);
     this.bindEvents();
-    this.initNetworkCanvas();
     this.renderAll();
     AuthUI.switch('login');
-    this.setSyncStatus('Sẵn sàng');
+    this.setSyncStatus('Chưa đăng nhập');
     this.lockApp(true);
-    this.showIntroScreen();
 
     if (FirebaseService.ready) {
       auth.onAuthStateChanged(async (user) => {
@@ -149,22 +147,20 @@ const App = {
           this.state.user = user || null;
           if (!user) {
             this.lockApp(true);
-            this.showIntroScreen();
             this.setUserInfo(null);
-            this.setSyncStatus('Sẵn sàng');
+            this.setSyncStatus('Chưa đăng nhập');
             return;
           }
-          this.hideSplash();
           this.lockApp(false);
           this.setUserInfo(user);
-          this.setSyncStatus('Đang tải dữ liệu...');
+          this.setSyncStatus('Đang tải Firebase...');
           await FirebaseService.ensureProfile(user);
           const cloudData = await FirebaseService.loadJournal(user.uid);
           this.data = cloudData || this.demo();
           this.recomputeTrades();
           this.saveLocalCache();
           this.renderAll();
-          this.setSyncStatus('Dữ liệu đã sẵn sàng');
+          this.setSyncStatus('Đã đồng bộ Firebase');
         } catch (error) {
           console.error(error);
           this.showAuthMessage(error.message || 'Không tải được dữ liệu Firebase.', true);
@@ -186,104 +182,11 @@ const App = {
     ['energy-input','calm-input','fomo-input','confidence-input'].forEach(id => document.getElementById(id).addEventListener('input', () => this.updateMindsetValues()));
     ['breath-in','breath-hold','breath-out'].forEach(id => document.getElementById(id).addEventListener('input', () => this.updateBreathSummary()));
     ['trade-theory-file','trade-actual-file','pattern-image-file'].forEach(id => document.getElementById(id).addEventListener('change', (e) => this.handleFilePreview(e)));
-    ['auth-email','auth-password','auth-name'].forEach(id => { const el = document.getElementById(id); if (el) el.addEventListener('keydown', (e) => { if (e.key === 'Enter') AuthUI.submit(); }); });
   },
 
   lockApp(locked) {
     document.querySelector('.app-shell').classList.toggle('app-locked', locked);
-    if (!locked) document.getElementById('auth-overlay').classList.add('hidden');
-  },
-
-  showIntroScreen() {
-    const splash = document.getElementById('splash-screen');
-    const canvas = document.getElementById('network-canvas');
-    const auth = document.getElementById('auth-overlay');
-    if (splash) splash.classList.remove('hidden');
-    if (canvas) canvas.classList.remove('hidden');
-    if (auth) auth.classList.add('hidden');
-  },
-
-  enterLogin() {
-    const splash = document.getElementById('splash-screen');
-    const auth = document.getElementById('auth-overlay');
-    if (splash) splash.classList.add('hidden');
-    if (auth) auth.classList.remove('hidden');
-    setTimeout(() => document.getElementById('auth-email')?.focus(), 60);
-  },
-
-  hideSplash() {
-    document.getElementById('splash-screen')?.classList.add('hidden');
-    document.getElementById('network-canvas')?.classList.add('hidden');
-    document.getElementById('auth-overlay')?.classList.add('hidden');
-  },
-
-  initNetworkCanvas() {
-    const canvas = document.getElementById('network-canvas');
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const dpr = Math.max(1, window.devicePixelRatio || 1);
-    const colors = ['#10b981', '#22c55e', '#38bdf8', '#a78bfa', '#f59e0b'];
-    const state = this.state.network || (this.state.network = { particles: [], raf: null });
-    const resize = () => {
-      canvas.width = window.innerWidth * dpr;
-      canvas.height = window.innerHeight * dpr;
-      canvas.style.width = window.innerWidth + 'px';
-      canvas.style.height = window.innerHeight + 'px';
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      const count = Math.max(28, Math.min(54, Math.round(window.innerWidth / 34)));
-      state.particles = Array.from({ length: count }, (_, i) => ({
-        x: Math.random() * window.innerWidth,
-        y: Math.random() * window.innerHeight,
-        vx: (Math.random() - 0.5) * 0.35,
-        vy: (Math.random() - 0.5) * 0.35,
-        r: 2.5 + Math.random() * 5.5,
-        color: colors[i % colors.length]
-      }));
-    };
-    const draw = () => {
-      ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
-      const gradient = ctx.createRadialGradient(window.innerWidth * 0.5, window.innerHeight * 0.45, 0, window.innerWidth * 0.5, window.innerHeight * 0.45, Math.max(window.innerWidth, window.innerHeight) * 0.72);
-      gradient.addColorStop(0, 'rgba(16,185,129,0.08)');
-      gradient.addColorStop(1, 'rgba(2,6,23,0)');
-      ctx.fillStyle = gradient;
-      ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
-      const particles = state.particles;
-      for (const p of particles) {
-        p.x += p.vx; p.y += p.vy;
-        if (p.x < -30) p.x = window.innerWidth + 30;
-        if (p.x > window.innerWidth + 30) p.x = -30;
-        if (p.y < -30) p.y = window.innerHeight + 30;
-        if (p.y > window.innerHeight + 30) p.y = -30;
-      }
-      for (let i = 0; i < particles.length; i++) {
-        for (let k = i + 1; k < particles.length; k++) {
-          const a = particles[i], b = particles[k];
-          const dx = a.x - b.x, dy = a.y - b.y;
-          const dist = Math.hypot(dx, dy);
-          if (dist < 170) {
-            ctx.beginPath();
-            ctx.strokeStyle = `rgba(148,163,184,${(1 - dist / 170) * 0.22})`;
-            ctx.lineWidth = 1;
-            ctx.moveTo(a.x, a.y);
-            ctx.lineTo(b.x, b.y);
-            ctx.stroke();
-          }
-        }
-      }
-      for (const p of particles) {
-        const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r * 5);
-        glow.addColorStop(0, p.color + 'dd');
-        glow.addColorStop(1, 'rgba(255,255,255,0)');
-        ctx.fillStyle = glow;
-        ctx.beginPath(); ctx.arc(p.x, p.y, p.r * 5, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = p.color;
-        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
-      }
-      state.raf = requestAnimationFrame(draw);
-    };
-    resize();
-    if (!state.raf) draw();
-    window.addEventListener('resize', resize);
+    document.getElementById('auth-overlay').classList.toggle('hidden', !locked);
   },
 
   showAuthMessage(message, isError = false) {
@@ -330,13 +233,13 @@ const App = {
     if (!this.state.user || this.state.isSaving) return;
     this.state.isSaving = true;
     try {
-      this.setSyncStatus('Đang lưu dữ liệu...');
+      this.setSyncStatus('Đang lưu Firebase...');
       await FirebaseService.saveJournal(this.state.user.uid, this.data);
-      this.setSyncStatus('Đã lưu dữ liệu');
+      this.setSyncStatus('Đã lưu lên Firebase');
     } catch (error) {
       console.error(error);
       this.setSyncStatus('Lưu thất bại');
-      alert('Không lưu được dữ liệu: ' + (error.message || error));
+      alert('Không lưu được lên Firebase: ' + (error.message || error));
     } finally {
       this.state.isSaving = false;
     }
@@ -812,8 +715,10 @@ const App = {
   },
 
   updateMission() {
-    const bar = document.getElementById('sidebar-breath-bar');
-    if (bar) bar.style.width = `${Math.max(15, this.data.mindset.calm * 10)}%`;
+    document.getElementById('mission-dist').textContent = this.data.market.distDays;
+    document.getElementById('mission-risk').textContent = this.marketStateLabel().title;
+    document.getElementById('mission-sectors').textContent = this.leadingSectorText();
+    document.getElementById('sidebar-breath-bar').style.width = `${Math.max(15, this.data.mindset.calm * 10)}%`;
   },
 
   prefillTradeFromWatchlist(id) {

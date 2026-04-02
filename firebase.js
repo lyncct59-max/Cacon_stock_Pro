@@ -1,12 +1,11 @@
-// Điền đúng cấu hình Firebase project của bạn tại đây.
 const firebaseConfig = {
-  apiKey: "AIzaSyCapUGa35wIhvA2Y0NcCzUYCqLnOXEFkJc",
-  authDomain: "cacon-stock-b4cab.firebaseapp.com",
-  projectId: "cacon-stock-b4cab",
-  storageBucket: "cacon-stock-b4cab.firebasestorage.app",
-  messagingSenderId: "835007942800",
-  appId: "1:835007942800:web:2e91579fae013d56b10815",
-  measurementId: "G-RFNN6PYY8R"
+  apiKey: "AIzaSyCB8VyWZSc_T89l8s1w_vgzI-se6oz4ql4",
+  authDomain: "cacon-trading-journal.firebaseapp.com",
+  projectId: "cacon-trading-journal",
+  storageBucket: "cacon-trading-journal.firebasestorage.app",
+  messagingSenderId: "720236845512",
+  appId: "1:720236845512:web:cf5b6064ad7f3a4bc988fd",
+  measurementId: "G-2BZJG9NQ71"
 };
 
 firebase.initializeApp(firebaseConfig);

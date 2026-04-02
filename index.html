@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CACON STOCK PRO</title>
+  <title>CACON Trading Journal Firebase</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -67,7 +67,18 @@
           <div class="text-sm text-zinc-500 dark:text-zinc-400">GitHub + Firebase</div>
         </div>
       </div>
-<nav class="grid gap-1 text-sm" id="sidebar-nav">
+
+      <section class="card p-4 space-y-3">
+        <div class="flex items-center gap-2 text-sm font-semibold"><i data-lucide="sparkles" class="w-4 h-4 text-brand-500"></i> Trader Mission hôm nay</div>
+        <p class="text-sm leading-6 text-zinc-600 dark:text-zinc-300">Ưu tiên setup đúng mẫu, tránh mua đuổi, chỉ vào lệnh khi đã qua checklist, sizing và thị trường cho phép.</p>
+        <div class="grid gap-2 text-xs">
+          <div class="mini-row"><span>Số ngày phân phối</span><strong id="mission-dist">2</strong></div>
+          <div class="mini-row"><span>Risk mode</span><strong id="mission-risk">Bình thường</strong></div>
+          <div class="mini-row"><span>Ngành mạnh</span><strong id="mission-sectors">CK · CN</strong></div>
+        </div>
+      </section>
+
+      <nav class="grid gap-1 text-sm" id="sidebar-nav">
         <button class="side-btn active" data-tab="dashboard"><i data-lucide="layout-dashboard"></i>Dashboard</button>
         <button class="side-btn" data-tab="scan"><i data-lucide="scan-search"></i>Scan & Watchlist</button>
         <button class="side-btn" data-tab="journal"><i data-lucide="book-open"></i>Nhật ký lệnh</button>
@@ -99,8 +110,13 @@
       <header class="sticky top-0 z-30 border-b border-zinc-200 bg-white/90 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/90">
         <div class="px-4 lg:px-6 py-4 flex items-center justify-between gap-3">
           <div>
-            <h1 class="text-3xl font-semibold leading-tight">Dashboard</h1>
-            <p class="text-sm text-zinc-500 dark:text-zinc-400">Tập trung vào watchlist, chất lượng lệnh và trạng thái thị trường để ra quyết định rõ ràng hơn.</p>
+            <div class="flex flex-wrap gap-2 mb-2">
+              <span class="badge-soft green">Firebase Auth</span>
+              <span class="badge-soft blue">Cloud Firestore</span>
+              <span class="badge-soft purple">Storage ảnh</span>
+            </div>
+            <h1 class="text-3xl font-semibold leading-tight">Trading Journal PRO UX</h1>
+            <p class="text-sm text-zinc-500 dark:text-zinc-400">Mỗi tài khoản có dữ liệu riêng, lưu trên Firebase và tự đồng bộ theo tài khoản.</p>
           </div>
           <div class="flex items-center gap-2">
             <div class="hidden md:flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900">
@@ -302,7 +318,7 @@
             <label class="field-block"><span>Upload ảnh thực tế</span><input id="trade-actual-file" type="file" accept="image/*" class="field-input"></label>
           </div>
           <div class="grid grid-cols-2 gap-4"><div class="image-preview-box"><img id="trade-theory-preview" alt="theory"></div><div class="image-preview-box"><img id="trade-actual-preview" alt="actual"></div></div>
-          <div class="rounded-2xl bg-zinc-50 p-4 dark:bg-zinc-900/70 text-sm"><div class="font-semibold mb-2">Liên kết so sánh mẫu hình trước khi vào lệnh</div><p class="text-zinc-600 dark:text-zinc-300">Ảnh có thể nhập URL hoặc tải trực tiếp lên hệ thống. Khi chọn Pattern liên kết, checklist và ảnh lý thuyết sẽ được gợi ý tự động.</p></div>
+          <div class="rounded-2xl bg-zinc-50 p-4 dark:bg-zinc-900/70 text-sm"><div class="font-semibold mb-2">Liên kết so sánh mẫu hình trước khi vào lệnh</div><p class="text-zinc-600 dark:text-zinc-300">Ảnh có thể nhập URL hoặc upload lên Firebase Storage. Khi chọn Pattern liên kết, checklist và ảnh lý thuyết sẽ được gợi ý tự động.</p></div>
         </div>
       </div>
       <div class="modal-actions"><button class="btn-secondary" onclick="App.closeTradeModal()">Hủy</button><button class="btn-primary" onclick="App.saveTrade()">Lưu lệnh</button></div>

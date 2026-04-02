@@ -1,4 +1,3 @@
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
   apiKey: "AIzaSyCB8VyWZSc_T89l8s1w_vgzI-se6oz4ql4",
   authDomain: "cacon-trading-journal.firebaseapp.com",
@@ -8,3 +7,8 @@ const firebaseConfig = {
   appId: "1:720236845512:web:cf5b6064ad7f3a4bc988fd",
   measurementId: "G-2BZJG9NQ71"
 };
+
+firebase.initializeApp(firebaseConfig);
+window.auth = firebase.auth();
+window.db = firebase.firestore();
+window.storage = firebase.storage();

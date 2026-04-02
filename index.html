@@ -25,39 +25,6 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body class="bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
-  <canvas id="network-canvas" class="network-canvas hidden"></canvas>
-  <section id="splash-screen" class="splash-screen hidden">
-    <span class="splash-ocean-glow splash-ocean-glow-a"></span>
-    <span class="splash-ocean-glow splash-ocean-glow-b"></span>
-    <div class="splash-shell-fish">
-      <div class="splash-brand-block">
-        <p class="auth-form-kicker text-sm font-semibold tracking-[0.35em] uppercase">CACON STOCK PRO</p>
-        <h1 class="splash-title">CACON STOCK PRO</h1>
-        <div class="splash-slogan">The Discipline Terminal</div>
-      </div>
-      <div class="splash-visual-row">
-        <div class="fish-scene">
-          <div class="shark-shadow shark-1"></div>
-          <div class="shark-shadow shark-2"></div>
-          <div class="shark-shadow shark-3"></div>
-          <div class="discipline-fish">
-            <span class="fish-eye"></span>
-            <span class="fish-fin"></span>
-            <span class="fish-tail"></span>
-          </div>
-        </div>
-        <div class="splash-quote-card splash-fade-in">
-          <p class="splash-quote">“Trong đại dương biến động, Cá Con không bao giờ đi ngược dòng nước. Chúng học cách lướt trên sức mạnh của bầy Cá Mập bằng kỷ luật sắt để sinh tồn và thịnh vượng.”</p>
-          <p class="splash-symbolism">Cá con màu xanh lục tượng trưng cho nhà đầu tư nhỏ lẻ biết giữ kỷ luật, di chuyển linh hoạt giữa những cái bóng cá mập mờ ảo để đi cùng dòng tiền lớn thay vì chống lại nó.</p>
-          <div class="splash-actions">
-            <button class="btn-primary" onclick="App.showLoginPanel()"><i data-lucide="arrow-right"></i>Vào trạm giao dịch</button>
-            <div class="splash-note">Dừng vài giây để nhắc mình: không chống lại thị trường, chỉ giao dịch khi đúng dòng tiền, đúng kế hoạch và đúng kỷ luật.</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
   <div id="auth-overlay" class="auth-overlay">
     <div class="auth-card">
       <div class="flex items-center gap-3 mb-6">
@@ -65,8 +32,8 @@
           <i data-lucide="candlestick-chart" class="w-6 h-6"></i>
         </div>
         <div>
-          <div class="font-semibold text-2xl leading-7">CACON STOCK PRO</div>
-          <div class="text-sm text-zinc-500 dark:text-zinc-400">The Discipline Terminal</div>
+          <div class="font-semibold text-2xl leading-7">CACON Trading Journal</div>
+          <div class="text-sm text-zinc-500 dark:text-zinc-400">Đăng nhập bằng Firebase</div>
         </div>
       </div>
 
@@ -85,7 +52,7 @@
         </div>
       </div>
 
-      <div id="auth-message" class="auth-message mt-4">Đăng nhập để tiếp tục hành trình giao dịch với dữ liệu và kỷ luật của riêng bạn.</div>
+      <div id="auth-message" class="auth-message mt-4">Đăng nhập để đồng bộ dữ liệu cá nhân, ảnh và nhật ký lên Firebase.</div>
     </div>
   </div>
 
@@ -96,8 +63,8 @@
           <i data-lucide="candlestick-chart" class="w-6 h-6"></i>
         </div>
         <div>
-          <div class="font-semibold text-2xl leading-7">CACON STOCK PRO</div>
-          <div class="text-sm text-zinc-500 dark:text-zinc-400">The Discipline Terminal</div>
+          <div class="font-semibold text-2xl leading-7">CACON Trading Journal</div>
+          <div class="text-sm text-zinc-500 dark:text-zinc-400">GitHub + Firebase</div>
         </div>
       </div>
 <nav class="grid gap-1 text-sm" id="sidebar-nav">
@@ -169,7 +136,7 @@
             </section>
             <section class="card p-5">
               <div class="section-head">
-                <div><h2>Bảng điều khiển giao dịch</h2><p>Chất lượng lệnh, lỗi lặp lại, trạng thái thị trường và bước hành động tiếp theo.</p></div>
+                <div><h2>Bảng điều khiển trader thực chiến</h2><p>Chất lượng lệnh, lỗi lặp lại, trạng thái thị trường và bước hành động tiếp theo.</p></div>
               </div>
               <div class="grid md:grid-cols-3 gap-4 mb-4">
                 <div class="stat-box"><div>Checklist pass rate</div><strong id="pass-rate"></strong><span>Tỷ lệ tick đủ điều kiện trước lệnh</span></div>
@@ -182,17 +149,6 @@
               </div>
             </section>
           </div>
-
-          <section class="card p-5 trader-reminder-section">
-            <div class="section-head !mb-5">
-              <div>
-                <h2>Nhắc nhở trader</h2>
-                <p>3 poster kỷ luật để nhắc trader kiểm soát phản ứng, tuân thủ kế hoạch và đi cùng dòng tiền mạnh.</p>
-              </div>
-              <div id="dashboard-reminder-admin"></div>
-            </div>
-            <div id="trader-reminder-grid" class="trader-reminder-grid"></div>
-          </section>
         </section>
 
         <section data-screen="scan" class="screen hidden space-y-6">
@@ -354,22 +310,6 @@
   </div>
 
   <div id="watchlist-modal" class="modal hidden"><div class="modal-card max-w-3xl"><div class="modal-head"><h3 id="watchlist-modal-title">Thêm watchlist</h3><button class="icon-btn" onclick="App.closeWatchlistModal()"><i data-lucide="x"></i></button></div><div class="grid md:grid-cols-2 gap-4"><label class="field-block"><span>Mã</span><input id="watch-symbol" class="field-input"></label><label class="field-block"><span>Nhóm</span><select id="watch-group" class="field-input"><option value="near">Gần điểm mua</option><option value="watch">Theo dõi</option><option value="long">Dài hạn</option></select></label><label class="field-block"><span>Setup / Pattern</span><select id="watch-pattern-id" class="field-input"></select></label><label class="field-block"><span>Buy zone</span><input id="watch-buy-zone" class="field-input"></label><label class="field-block"><span>Risk</span><select id="watch-risk" class="field-input"><option>Thấp</option><option>Trung bình</option><option>Cao</option></select></label><label class="field-block"><span>Trạng thái</span><input id="watch-status" class="field-input" placeholder="Gần điểm mua / Theo dõi / Canh xác nhận volume"></label></div><label class="field-block mt-4"><span>Kế hoạch / ghi chú</span><textarea id="watch-plan" class="field-input min-h-[90px]"></textarea></label><div class="modal-actions"><button class="btn-secondary" onclick="App.closeWatchlistModal()">Hủy</button><button class="btn-primary" onclick="App.saveWatchlist()">Lưu watchlist</button></div></div></div>
-  <div id="reminder-modal" class="modal hidden">
-    <div class="modal-card max-w-3xl">
-      <div class="modal-head"><h3 id="reminder-modal-title">Chèn ảnh nhắc nhở</h3><button class="icon-btn" onclick="App.closeReminderModal()"><i data-lucide="x"></i></button></div>
-      <div class="grid gap-4">
-        <label class="field-block"><span>Tiêu đề ngắn</span><input id="reminder-title" class="field-input" placeholder="Kiểm soát phản ứng"></label>
-        <label class="field-block"><span>URL ảnh</span><input id="reminder-image-url" class="field-input" placeholder="https://..."></label>
-        <label class="field-block"><span>Tải ảnh từ máy</span><input id="reminder-image-file" type="file" accept="image/*" class="field-input"></label>
-        <div class="image-preview-box !aspect-[5/7]"><img id="reminder-image-preview" alt="preview"></div>
-      </div>
-      <div class="modal-actions">
-        <button class="btn-secondary" onclick="App.closeReminderModal()">Hủy</button>
-        <button class="btn-secondary" onclick="App.clearReminderImage()">Xóa ảnh</button>
-        <button class="btn-primary" onclick="App.saveReminder()">Lưu ảnh</button>
-      </div>
-    </div>
-  </div>
 
   <div id="pattern-modal" class="modal hidden"><div class="modal-card max-w-5xl"><div class="modal-head"><h3 id="pattern-modal-title">Tạo mẫu hình</h3><button class="icon-btn" onclick="App.closePatternModal()"><i data-lucide="x"></i></button></div><div class="grid lg:grid-cols-2 gap-5"><div class="space-y-4"><div class="grid md:grid-cols-2 gap-4"><label class="field-block"><span>Tên mẫu hình</span><input id="pattern-name" class="field-input"></label><label class="field-block"><span>Chiến lược</span><input id="pattern-strategy" class="field-input"></label></div><label class="field-block"><span>Mô tả</span><textarea id="pattern-description" class="field-input min-h-[90px]"></textarea></label><label class="field-block"><span>Điều kiện nền (mỗi dòng một điều kiện)</span><textarea id="pattern-conditions" class="field-input min-h-[110px]"></textarea></label><label class="field-block"><span>Điều kiện kích hoạt / trước khi vào lệnh</span><textarea id="pattern-triggers" class="field-input min-h-[110px]"></textarea></label></div><div class="space-y-4"><div class="grid md:grid-cols-2 gap-4"><label class="field-block"><span>Ảnh minh họa (URL)</span><input id="pattern-image-url" class="field-input"></label><label class="field-block"><span>Upload ảnh</span><input id="pattern-image-file" type="file" accept="image/*" class="field-input"></label></div><div class="image-preview-large" onclick="App.togglePatternZoom()"><img id="pattern-image-preview" alt="pattern preview" /><div class="zoom-hint">Chạm để phóng to</div></div><div class="rounded-2xl bg-zinc-50 p-4 dark:bg-zinc-900/70 text-sm text-zinc-600 dark:text-zinc-300">Sau khi lưu, mẫu hình sẽ tự liên kết với watchlist và form tạo lệnh. Khi chọn pattern, checklist và ảnh lý thuyết sẽ được gợi ý tự động.</div></div></div><div class="modal-actions"><button class="btn-secondary" onclick="App.closePatternModal()">Hủy</button><button class="btn-primary" onclick="App.savePattern()">Lưu mẫu hình</button></div></div></div>
 

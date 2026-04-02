@@ -96,3 +96,18 @@ tr.clickable:hover { background:#fafafa; cursor:pointer; }
 .dark .auth-message { background:#111827; color:#cbd5e1; }
 .dark .auth-message.error { background:rgba(127,29,29,.35); color:#fecaca; }
 .app-locked { filter:blur(4px); pointer-events:none; user-select:none; }
+
+
+/* Final v2 splash */
+.network-canvas { position:fixed; inset:0; width:100vw; height:100vh; z-index:640; pointer-events:none; background:linear-gradient(180deg,#fafafa 0%,#f5f5f5 100%); }
+.network-canvas.hidden { display:none; }
+.splash-screen { position:fixed; inset:0; z-index:650; display:flex; align-items:center; justify-content:center; padding:28px 20px; background:transparent; }
+.splash-screen.hidden { display:none; }
+.splash-shell-v2 { width:min(100%, 1200px); display:flex; flex-direction:column; align-items:center; text-align:center; }
+.splash-kicker { font-size:14px; color:#71717a; font-weight:600; margin-bottom:18px; }
+.splash-title { max-width:1200px; font-size:clamp(44px,5.8vw,80px); line-height:1.04; font-weight:800; color:#18181b; letter-spacing:-.04em; }
+.splash-title span { color:#10b981; }
+.splash-desc-v2 { margin-top:24px; max-width:860px; font-size:clamp(20px,2vw,34px); line-height:1.55; color:#52525b; }
+.splash-actions-v2 { margin-top:32px; }
+.splash-cta { padding:16px 28px; border-radius:18px; font-size:18px; box-shadow:0 16px 32px rgba(16,185,129,.2); }
+@media (max-width:640px){ .splash-title { font-size:42px; } .splash-desc-v2 { font-size:18px; } }

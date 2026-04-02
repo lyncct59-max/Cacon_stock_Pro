@@ -73,7 +73,9 @@ const App = {
     user: null,
     saveTimer: null,
     isSaving: false,
-    breathing: { timer: null }
+    breathing: { timer: null },
+    splash: { hidden: false },
+    network: { particles: [], raf: null }
   },
 
   demo() {
@@ -136,6 +138,7 @@ const App = {
     this.recomputeTrades();
     this.applyTheme(this.state.theme);
     this.bindEvents();
+    this.initNetworkCanvas();
     this.renderAll();
     AuthUI.switch('login');
     this.setSyncStatus('Chưa đăng nhập');
@@ -147,10 +150,12 @@ const App = {
           this.state.user = user || null;
           if (!user) {
             this.lockApp(true);
+            this.showSplash();
             this.setUserInfo(null);
             this.setSyncStatus('Chưa đăng nhập');
             return;
           }
+          this.hideSplash();
           this.lockApp(false);
           this.setUserInfo(user);
           this.setSyncStatus('Đang tải Firebase...');
@@ -187,6 +192,80 @@ const App = {
   lockApp(locked) {
     document.querySelector('.app-shell').classList.toggle('app-locked', locked);
     document.getElementById('auth-overlay').classList.toggle('hidden', !locked);
+  },
+
+  showSplash() {
+    this.state.splash.hidden = false;
+    document.getElementById('splash-screen')?.classList.remove('hidden');
+    document.getElementById('network-canvas')?.classList.remove('hidden');
+    lucide.createIcons();
+  },
+
+  hideSplash() {
+    this.state.splash.hidden = true;
+    document.getElementById('splash-screen')?.classList.add('hidden');
+    document.getElementById('network-canvas')?.classList.add('hidden');
+  },
+
+  enterLogin() {
+    this.hideSplash();
+    setTimeout(() => document.getElementById('auth-email')?.focus(), 80);
+  },
+
+  initNetworkCanvas() {
+    const canvas = document.getElementById('network-canvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const colors = ['#ef4444', '#3b82f6', '#10b981', '#eab308'];
+    const state = this.state.network;
+    const resize = () => {
+      canvas.width = window.innerWidth * dpr;
+      canvas.height = window.innerHeight * dpr;
+      canvas.style.width = window.innerWidth + 'px';
+      canvas.style.height = window.innerHeight + 'px';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const count = Math.max(40, Math.min(90, Math.round(window.innerWidth / 28)));
+      state.particles = Array.from({ length: count }, (_, i) => ({
+        x: Math.random() * window.innerWidth,
+        y: Math.random() * window.innerHeight,
+        vx: (Math.random() - 0.5) * 0.35,
+        vy: (Math.random() - 0.5) * 0.35,
+        r: 1.4 + Math.random() * 2.1,
+        color: colors[i % colors.length]
+      }));
+    };
+    const draw = () => {
+      ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      for (const p of state.particles) {
+        p.x += p.vx; p.y += p.vy;
+        if (p.x < -20) p.x = window.innerWidth + 20;
+        if (p.x > window.innerWidth + 20) p.x = -20;
+        if (p.y < -20) p.y = window.innerHeight + 20;
+        if (p.y > window.innerHeight + 20) p.y = -20;
+      }
+      for (let i = 0; i < state.particles.length; i += 1) {
+        for (let j = i + 1; j < state.particles.length; j += 1) {
+          const a = state.particles[i], b = state.particles[j];
+          const dx = a.x - b.x, dy = a.y - b.y;
+          const dist = Math.hypot(dx, dy);
+          if (dist < 120) {
+            ctx.beginPath();
+            ctx.strokeStyle = `rgba(203,213,225,${(1 - dist / 120) * 0.24})`;
+            ctx.lineWidth = 1;
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(b.x, b.y);
+            ctx.stroke();
+          }
+        }
+      }
+      for (const p of state.particles) {
+        ctx.fillStyle = p.color;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+      }
+      state.raf = requestAnimationFrame(draw);
+    };
+    resize(); draw(); window.addEventListener('resize', resize);
   },
 
   showAuthMessage(message, isError = false) {

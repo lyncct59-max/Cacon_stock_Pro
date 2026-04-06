@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CACON Stock</title>
+  <title>CACON Trading Journal Firebase</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -25,95 +25,34 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body class="bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
-  
-  <canvas id="network-canvas" class="network-canvas" aria-hidden="true"></canvas>
-
-  <div id="splash-screen" class="splash-screen">
-    <div class="splash-shell">
-      <div class="splash-badge">CACON STOCK</div>
-      <h1 class="splash-title">Hệ thống giúp trader dừng thua theo cách cũ</h1>
-      <div class="splash-copy">
-        <p class="splash-intro">Nếu bạn đang:</p>
-        <div class="splash-list">
-          <div>Thua liên tục</div>
-          <div>Không hiểu mình sai ở đâu</div>
-          <div>Và lặp lại cùng một lỗi mỗi ngày</div>
-        </div>
-      </div>
-      <div class="splash-highlight">
-        <strong>Bạn không cần thêm kiến thức</strong>
-        <strong>Bạn cần một hệ thống để sửa hành vi</strong>
-      </div>
-      <p class="splash-desc">Cacon Stock không giúp bạn thắng ngay lập tức nhưng sẽ giúp bạn ngừng thua theo cách cũ.</p>
-      <div class="splash-actions">
-        <button class="btn-primary" onclick="App.enterLogin()"><i data-lucide="arrow-right"></i>Vào đăng nhập</button>
-        <span class="splash-note">Tập trung vào watchlist, chất lượng lệnh, đồng bộ dữ liệu và trạng thái thị trường.</span>
-      </div>
-    </div>
-  </div>
-
   <div id="auth-overlay" class="auth-overlay">
-    <div class="auth-terminal">
-      <section class="auth-panel auth-panel-info">
-        <div class="auth-brand">
-          <div class="auth-brand-icon"><i data-lucide="candlestick-chart" class="w-6 h-6"></i></div>
-          <div>
-            <div class="auth-brand-name">CACON STOCK</div>
-            <div class="auth-brand-sub">Terminal Trader Pro</div>
-          </div>
+    <div class="auth-card">
+      <div class="flex items-center gap-3 mb-6">
+        <div class="w-12 h-12 rounded-2xl bg-brand-100 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300 flex items-center justify-center">
+          <i data-lucide="candlestick-chart" class="w-6 h-6"></i>
         </div>
-
-        <div class="auth-hero">
-          <h2>Đăng nhập để mở hệ thống quản trị hành vi giao dịch</h2>
-          <p>Watchlist rõ ràng hơn. Chất lượng lệnh đo được. Trạng thái thị trường được tổng hợp để bạn ra quyết định gọn, lạnh và đúng quy trình.</p>
+        <div>
+          <div class="font-semibold text-2xl leading-7">CACON Trading Journal</div>
+          <div class="text-sm text-zinc-500 dark:text-zinc-400">Đăng nhập bằng Firebase</div>
         </div>
+      </div>
 
-        <div class="auth-feature-grid">
-          <div class="auth-feature"><span>01</span><div><strong>Watchlist trọng tâm</strong><p>Theo dõi mã, kế hoạch và biểu đồ trong một màn hình.</p></div></div>
-          <div class="auth-feature"><span>02</span><div><strong>Chất lượng lệnh</strong><p>Nhìn lại sai lầm lặp lại và kỷ luật thực thi.</p></div></div>
-          <div class="auth-feature"><span>03</span><div><strong>Đồng bộ dữ liệu</strong><p>Mỗi tài khoản một dữ liệu riêng, vào là tiếp tục làm việc.</p></div></div>
+      <div class="flex gap-2 mb-5">
+        <button id="auth-tab-login" class="auth-tab active" onclick="AuthUI.switch('login')">Đăng nhập</button>
+        <button id="auth-tab-register" class="auth-tab" onclick="AuthUI.switch('register')">Tạo tài khoản</button>
+      </div>
+
+      <div class="grid gap-4">
+        <label class="field-block" id="auth-name-wrap"><span>Họ tên</span><input id="auth-name" class="field-input" placeholder="Nguyễn Văn A"></label>
+        <label class="field-block"><span>Email</span><input id="auth-email" type="email" class="field-input" placeholder="ban@email.com"></label>
+        <label class="field-block"><span>Mật khẩu</span><input id="auth-password" type="password" class="field-input" placeholder="Tối thiểu 6 ký tự"></label>
+        <div class="grid gap-3 md:grid-cols-2">
+          <button class="btn-primary w-full" onclick="AuthUI.submit()">Tiếp tục</button>
+          <button class="btn-secondary w-full" onclick="AuthUI.resetPassword()">Quên mật khẩu</button>
         </div>
+      </div>
 
-        <div class="auth-terminal-bar">
-          <span class="dot red"></span>
-          <span class="dot amber"></span>
-          <span class="dot green"></span>
-          <code>market-state / watchlist / execution-quality</code>
-        </div>
-      </section>
-
-      <section class="auth-panel auth-panel-form">
-        <div class="auth-form-head">
-          <div>
-            <div class="auth-form-kicker">BẢO MẬT TÀI KHOẢN</div>
-            <div class="auth-form-title">Đăng nhập</div>
-          </div>
-          <div class="auth-mode-badge">LIVE</div>
-        </div>
-
-        <div class="flex gap-2 mb-5">
-          <button id="auth-tab-login" class="auth-tab active" onclick="AuthUI.switch('login')">Đăng nhập</button>
-          <button id="auth-tab-register" class="auth-tab" onclick="AuthUI.switch('register')">Tạo tài khoản</button>
-        </div>
-
-        <div class="grid gap-4">
-          <label class="field-block" id="auth-name-wrap"><span>Họ tên</span><input id="auth-name" class="field-input auth-input" placeholder="Nguyễn Văn A"></label>
-          <label class="field-block"><span>Email</span><input id="auth-email" type="email" class="field-input auth-input" placeholder="ban@email.com"></label>
-          <label class="field-block">
-            <span>Mật khẩu</span>
-            <div class="password-wrap">
-              <input id="auth-password" type="password" class="field-input auth-input" placeholder="Tối thiểu 6 ký tự">
-              <button type="button" class="password-toggle" id="auth-password-toggle"><i data-lucide="eye"></i></button>
-            </div>
-          </label>
-          <div class="grid gap-3 md:grid-cols-2">
-            <button id="auth-submit-btn" class="btn-primary w-full" onclick="AuthUI.submit()">Tiếp tục</button>
-            <button id="auth-reset-btn" class="btn-secondary w-full" onclick="AuthUI.resetPassword()">Quên mật khẩu</button>
-          </div>
-        </div>
-
-        <div id="auth-message" class="auth-message mt-4">Đăng nhập để đồng bộ dữ liệu cá nhân, ảnh biểu đồ và nhật ký đầu tư.</div>
-      </section>
+      <div id="auth-message" class="auth-message mt-4">Đăng nhập để đồng bộ dữ liệu cá nhân, ảnh và nhật ký lên Firebase.</div>
     </div>
   </div>
 
@@ -124,11 +63,22 @@
           <i data-lucide="candlestick-chart" class="w-6 h-6"></i>
         </div>
         <div>
-          <div class="font-semibold text-2xl leading-7">CACON Stock</div>
-          <div class="text-sm text-zinc-500 dark:text-zinc-400">Hệ thống quản trị giao dịch</div>
+          <div class="font-semibold text-2xl leading-7">CACON Trading Journal</div>
+          <div class="text-sm text-zinc-500 dark:text-zinc-400">GitHub + Firebase</div>
         </div>
       </div>
-<nav class="grid gap-1 text-sm" id="sidebar-nav">
+
+      <section class="card p-4 space-y-3">
+        <div class="flex items-center gap-2 text-sm font-semibold"><i data-lucide="sparkles" class="w-4 h-4 text-brand-500"></i> Trader Mission hôm nay</div>
+        <p class="text-sm leading-6 text-zinc-600 dark:text-zinc-300">Ưu tiên setup đúng mẫu, tránh mua đuổi, chỉ vào lệnh khi đã qua checklist, sizing và thị trường cho phép.</p>
+        <div class="grid gap-2 text-xs">
+          <div class="mini-row"><span>Số ngày phân phối</span><strong id="mission-dist">2</strong></div>
+          <div class="mini-row"><span>Risk mode</span><strong id="mission-risk">Bình thường</strong></div>
+          <div class="mini-row"><span>Ngành mạnh</span><strong id="mission-sectors">CK · CN</strong></div>
+        </div>
+      </section>
+
+      <nav class="grid gap-1 text-sm" id="sidebar-nav">
         <button class="side-btn active" data-tab="dashboard"><i data-lucide="layout-dashboard"></i>Dashboard</button>
         <button class="side-btn" data-tab="scan"><i data-lucide="scan-search"></i>Scan & Watchlist</button>
         <button class="side-btn" data-tab="journal"><i data-lucide="book-open"></i>Nhật ký lệnh</button>
@@ -157,15 +107,19 @@
     </aside>
 
     <div class="flex-1 min-w-0">
-      
-      <header class="sticky top-0 z-30 border-b border-zinc-200 bg-white/92 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/92">
-        <div class="page-header px-4 lg:px-6 py-3">
-          <div class="page-header-main">
-            <h1 class="page-title">Dashboard</h1>
-            <p class="page-subtitle">Tập trung vào watchlist, chất lượng lệnh, đã đồng bộ dữ liệu và trạng thái thị trường để ra quyết định rõ ràng hơn.</p>
+      <header class="sticky top-0 z-30 border-b border-zinc-200 bg-white/90 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/90">
+        <div class="px-4 lg:px-6 py-4 flex items-center justify-between gap-3">
+          <div>
+            <div class="flex flex-wrap gap-2 mb-2">
+              <span class="badge-soft green">Firebase Auth</span>
+              <span class="badge-soft blue">Cloud Firestore</span>
+              <span class="badge-soft purple">Storage ảnh</span>
+            </div>
+            <h1 class="text-3xl font-semibold leading-tight">Trading Journal PRO UX</h1>
+            <p class="text-sm text-zinc-500 dark:text-zinc-400">Mỗi tài khoản có dữ liệu riêng, lưu trên Firebase và tự đồng bộ theo tài khoản.</p>
           </div>
-          <div class="page-header-tools">
-            <div class="header-search hidden md:flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900">
+          <div class="flex items-center gap-2">
+            <div class="hidden md:flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900">
               <i data-lucide="search" class="w-4 h-4 text-zinc-400"></i>
               <input id="global-search" class="bg-transparent outline-none text-sm w-56" placeholder="Tìm theo mã, setup, chiến lược..." />
             </div>
@@ -173,8 +127,9 @@
               <i data-lucide="cloud-check" class="w-4 h-4 text-brand-500"></i>
               <span id="sync-status">Chưa đăng nhập</span>
             </div>
-            <button class="btn-primary btn-sm" onclick="App.openTradeModal()"><i data-lucide="plus"></i><span class="hidden md:inline">Tạo lệnh mới</span></button>
-            <button class="btn-secondary btn-sm" id="theme-toggle"><i data-lucide="moon"></i><span class="hidden md:inline">Dark</span></button>
+            <button class="btn-secondary" onclick="App.switchTab('review')"><i data-lucide="bell"></i><span class="hidden md:inline">Nhắc review</span></button>
+            <button class="btn-primary" onclick="App.openTradeModal()"><i data-lucide="plus"></i><span class="hidden md:inline">Tạo lệnh mới</span></button>
+            <button class="btn-secondary" id="theme-toggle"><i data-lucide="moon"></i><span class="hidden md:inline">Dark</span></button>
           </div>
         </div>
       </header>
@@ -210,13 +165,23 @@
               </div>
             </section>
           </div>
+
+
+          <section id="admin-approval-section" class="card p-5 hidden">
+            <div class="section-head">
+              <div><h2>Phê duyệt tài khoản mới</h2><p>Chỉ admin mới có quyền phê duyệt tài khoản đăng ký mới và cấp quyền sử dụng hệ thống.</p></div>
+              <div class="table-chip green">Đang chờ: <span id="admin-approval-count" class="ml-1">0</span></div>
+            </div>
+            <div id="admin-approval-list" class="grid gap-3"></div>
+          </section>
+
         </section>
 
         <section data-screen="scan" class="screen hidden space-y-6">
           <div class="card p-5">
             <div class="section-head">
-              <div><h2>Scan & Watchlist</h2><p>Quản lý 3 nhóm: Gần điểm mua, Theo dõi, Dài hạn. Mỗi mã có kế hoạch, mức rủi ro và biểu đồ riêng.</p></div>
-              <div class="flex gap-2"><button class="btn-secondary" onclick="App.openWatchlistModal()"><i data-lucide="plus"></i>Thêm watchlist</button><button class="btn-secondary" onclick="App.switchTab('patterns')">Mở mẫu hình</button></div>
+              <div><h2>Scan & Watchlist</h2><p>Quản lý 3 nhóm: Gần điểm mua, Theo dõi, Dài hạn. Kế hoạch lấy từ modul Mẫu hình.</p></div>
+              <div class="flex gap-2"><button id="scan-add-watch-btn" class="btn-secondary" onclick="App.openWatchlistModal()"><i data-lucide="plus"></i>Thêm watchlist</button><button class="btn-secondary" onclick="App.switchTab('patterns')">Mở mẫu hình</button></div>
             </div>
             <div class="grid gap-6 lg:grid-cols-3">
               <div><div class="sub-head"><span>Gần điểm mua</span><span id="scan-count-near"></span></div><div id="scan-near-list" class="space-y-3"></div></div>
@@ -257,7 +222,7 @@
 
         <section data-screen="patterns" class="screen hidden space-y-6">
           <div class="card p-5">
-            <div class="section-head"><div><h2>Mẫu hình giao dịch</h2><p>CRUD mẫu hình, ảnh minh họa, điều kiện nền, điều kiện kích hoạt. Liên kết sang so sánh trước khi vào lệnh.</p></div><button class="btn-primary" onclick="App.openPatternModal()"><i data-lucide="plus"></i>Tạo mẫu hình</button></div>
+            <div class="section-head"><div><h2>Mẫu hình giao dịch</h2><p>CRUD mẫu hình, ảnh minh họa, điều kiện nền, điều kiện kích hoạt. Liên kết sang so sánh trước khi vào lệnh.</p></div><button id="pattern-create-btn" class="btn-primary" onclick="App.openPatternModal()"><i data-lucide="plus"></i>Tạo mẫu hình</button></div>
             <div id="pattern-grid" class="grid gap-5 lg:grid-cols-2 xl:grid-cols-3"></div>
           </div>
         </section>
@@ -370,49 +335,7 @@
     </div>
   </div>
 
-  
-  <div id="watchlist-modal" class="modal hidden">
-    <div class="modal-card max-w-5xl">
-      <div class="modal-head">
-        <h3 id="watchlist-modal-title">Thêm watchlist</h3>
-        <button class="icon-btn" onclick="App.closeWatchlistModal()"><i data-lucide="x"></i></button>
-      </div>
-
-      <div class="grid lg:grid-cols-[1.05fr_.95fr] gap-5">
-        <div class="space-y-4">
-          <div class="grid md:grid-cols-2 gap-4">
-            <label class="field-block"><span>Mã</span><input id="watch-symbol" class="field-input"></label>
-            <label class="field-block"><span>Nhóm</span><select id="watch-group" class="field-input"><option value="near">Gần điểm mua</option><option value="watch">Theo dõi</option><option value="long">Dài hạn</option></select></label>
-            <label class="field-block"><span>Setup / Pattern</span><select id="watch-pattern-id" class="field-input"></select></label>
-            <label class="field-block"><span>Buy zone</span><input id="watch-buy-zone" class="field-input"></label>
-            <label class="field-block"><span>Risk</span><select id="watch-risk" class="field-input"><option>Thấp</option><option>Trung bình</option><option>Cao</option></select></label>
-            <label class="field-block"><span>Trạng thái</span><input id="watch-status" class="field-input" placeholder="Gần điểm mua / Theo dõi / Canh xác nhận volume"></label>
-          </div>
-          <label class="field-block"><span>Kế hoạch / ghi chú</span><textarea id="watch-plan" class="field-input min-h-[110px]"></textarea></label>
-        </div>
-
-        <div class="space-y-4">
-          <div class="grid md:grid-cols-2 gap-4">
-            <label class="field-block"><span>Ảnh biểu đồ (URL)</span><input id="watch-image-url" class="field-input" placeholder="https://..."></label>
-            <label class="field-block"><span>Tải ảnh biểu đồ</span><input id="watch-image-file" type="file" accept="image/*" class="field-input"></label>
-          </div>
-          <div class="image-preview-large watch-modal-preview" onclick="App.toggleWatchlistZoom()">
-            <img id="watch-image-preview" alt="watchlist preview" />
-            <div class="zoom-hint">Chạm để phóng to</div>
-          </div>
-          <div class="flex gap-2 flex-wrap">
-            <button class="btn-secondary" type="button" onclick="App.clearWatchlistImage()">Xóa ảnh trong form</button>
-          </div>
-          <div class="rounded-2xl bg-zinc-50 p-4 dark:bg-zinc-900/70 text-sm text-zinc-600 dark:text-zinc-300">Ảnh biểu đồ có thể nhập URL hoặc tải trực tiếp từ máy. Khi lưu, ảnh sẽ được gắn riêng cho mã trong watchlist và hiển thị ngay trên Dashboard / Scan.</div>
-        </div>
-      </div>
-
-      <div class="modal-actions">
-        <button class="btn-secondary" onclick="App.closeWatchlistModal()">Hủy</button>
-        <button class="btn-primary" onclick="App.saveWatchlist()">Lưu watchlist</button>
-      </div>
-    </div>
-  </div>
+  <div id="watchlist-modal" class="modal hidden"><div class="modal-card max-w-3xl"><div class="modal-head"><h3 id="watchlist-modal-title">Thêm watchlist</h3><button class="icon-btn" onclick="App.closeWatchlistModal()"><i data-lucide="x"></i></button></div><div class="grid md:grid-cols-2 gap-4"><label class="field-block"><span>Mã</span><input id="watch-symbol" class="field-input"></label><label class="field-block"><span>Nhóm</span><select id="watch-group" class="field-input"><option value="near">Gần điểm mua</option><option value="watch">Theo dõi</option><option value="long">Dài hạn</option></select></label><label class="field-block"><span>Setup / Pattern</span><select id="watch-pattern-id" class="field-input"></select></label><label class="field-block"><span>Buy zone</span><input id="watch-buy-zone" class="field-input"></label><label class="field-block"><span>Risk</span><select id="watch-risk" class="field-input"><option>Thấp</option><option>Trung bình</option><option>Cao</option></select></label><label class="field-block"><span>Trạng thái</span><input id="watch-status" class="field-input" placeholder="Gần điểm mua / Theo dõi / Canh xác nhận volume"></label></div><label class="field-block mt-4"><span>Kế hoạch / ghi chú</span><textarea id="watch-plan" class="field-input min-h-[90px]"></textarea></label><div class="modal-actions"><button class="btn-secondary" onclick="App.closeWatchlistModal()">Hủy</button><button class="btn-primary" onclick="App.saveWatchlist()">Lưu watchlist</button></div></div></div>
 
   <div id="pattern-modal" class="modal hidden"><div class="modal-card max-w-5xl"><div class="modal-head"><h3 id="pattern-modal-title">Tạo mẫu hình</h3><button class="icon-btn" onclick="App.closePatternModal()"><i data-lucide="x"></i></button></div><div class="grid lg:grid-cols-2 gap-5"><div class="space-y-4"><div class="grid md:grid-cols-2 gap-4"><label class="field-block"><span>Tên mẫu hình</span><input id="pattern-name" class="field-input"></label><label class="field-block"><span>Chiến lược</span><input id="pattern-strategy" class="field-input"></label></div><label class="field-block"><span>Mô tả</span><textarea id="pattern-description" class="field-input min-h-[90px]"></textarea></label><label class="field-block"><span>Điều kiện nền (mỗi dòng một điều kiện)</span><textarea id="pattern-conditions" class="field-input min-h-[110px]"></textarea></label><label class="field-block"><span>Điều kiện kích hoạt / trước khi vào lệnh</span><textarea id="pattern-triggers" class="field-input min-h-[110px]"></textarea></label></div><div class="space-y-4"><div class="grid md:grid-cols-2 gap-4"><label class="field-block"><span>Ảnh minh họa (URL)</span><input id="pattern-image-url" class="field-input"></label><label class="field-block"><span>Upload ảnh</span><input id="pattern-image-file" type="file" accept="image/*" class="field-input"></label></div><div class="image-preview-large" onclick="App.togglePatternZoom()"><img id="pattern-image-preview" alt="pattern preview" /><div class="zoom-hint">Chạm để phóng to</div></div><div class="rounded-2xl bg-zinc-50 p-4 dark:bg-zinc-900/70 text-sm text-zinc-600 dark:text-zinc-300">Sau khi lưu, mẫu hình sẽ tự liên kết với watchlist và form tạo lệnh. Khi chọn pattern, checklist và ảnh lý thuyết sẽ được gợi ý tự động.</div></div></div><div class="modal-actions"><button class="btn-secondary" onclick="App.closePatternModal()">Hủy</button><button class="btn-primary" onclick="App.savePattern()">Lưu mẫu hình</button></div></div></div>
 

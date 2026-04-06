@@ -1,4 +1,5 @@
 const STORAGE_KEY = 'cacon-trading-firebase-cache';
+const ADMIN_EMAILS = ['cltrade1982@gmail.com'];
 
 const FirebaseService = {
   get ready() {
@@ -10,12 +11,17 @@ const FirebaseService = {
   },
 
   async register(name, email, password) {
-    const cred = await auth.createUserWithEmailAndPassword(email, password);
+    const normalizedEmail = (email || '').trim().toLowerCase();
+    const isBootstrapAdmin = ADMIN_EMAILS.includes(normalizedEmail);
+    const cred = await auth.createUserWithEmailAndPassword(normalizedEmail, password);
     if (name) await cred.user.updateProfile({ displayName: name });
     await db.collection('users').doc(cred.user.uid).set({
       uid: cred.user.uid,
-      name: name || cred.user.displayName || email.split('@')[0],
-      email,
+      name: name || cred.user.displayName || normalizedEmail.split('@')[0],
+      email: normalizedEmail,
+      role: isBootstrapAdmin ? 'admin' : 'user',
+      approved: isBootstrapAdmin,
+      approvalStatus: isBootstrapAdmin ? 'approved' : 'pending',
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
@@ -36,6 +42,34 @@ const FirebaseService = {
       uid: user.uid,
       name: user.displayName || user.email?.split('@')[0] || 'Trader',
       email: user.email || '',
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+  },
+
+  async getUserProfile(uid) {
+    const snap = await db.collection('users').doc(uid).get();
+    return snap.exists ? snap.data() : null;
+  },
+
+  async listPendingUsers() {
+    const snap = await db.collection('users').where('approvalStatus', '==', 'pending').get();
+    return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  },
+
+  async approveUser(uid) {
+    return db.collection('users').doc(uid).set({
+      approved: true,
+      approvalStatus: 'approved',
+      approvedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+  },
+
+  async rejectUser(uid) {
+    return db.collection('users').doc(uid).set({
+      approved: false,
+      approvalStatus: 'rejected',
+      rejectedAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
   },
@@ -71,11 +105,12 @@ const App = {
     editingPatternId: null,
     authMode: 'login',
     user: null,
+    userProfile: null,
+    isAdmin: false,
+    pendingUsers: [],
     saveTimer: null,
     isSaving: false,
-    breathing: { timer: null },
-    splash: { hidden: false },
-    network: { particles: [], raf: null }
+    breathing: { timer: null }
   },
 
   demo() {
@@ -138,7 +173,6 @@ const App = {
     this.recomputeTrades();
     this.applyTheme(this.state.theme);
     this.bindEvents();
-    this.initNetworkCanvas();
     this.renderAll();
     AuthUI.switch('login');
     this.setSyncStatus('Chưa đăng nhập');
@@ -146,18 +180,29 @@ const App = {
 
     if (FirebaseService.ready) {
       auth.onAuthStateChanged(async (user) => {
-        this.setAuthBusy(false);
-
-        if (!user) {
-          this.state.user = null;
-          this.lockApp(true);
-          this.showSplash();
-          this.setUserInfo(null);
-          this.setSyncStatus('Chưa đăng nhập');
-          return;
+        try {
+          this.state.user = user || null;
+          if (!user) {
+            this.lockApp(true);
+            this.setUserInfo(null);
+            this.setSyncStatus('Chưa đăng nhập');
+            return;
+          }
+          this.lockApp(false);
+          this.setUserInfo(user);
+          this.setSyncStatus('Đang tải Firebase...');
+          await FirebaseService.ensureProfile(user);
+          const cloudData = await FirebaseService.loadJournal(user.uid);
+          this.data = cloudData || this.demo();
+          this.recomputeTrades();
+          this.saveLocalCache();
+          this.renderAll();
+          this.setSyncStatus('Đã đồng bộ Firebase');
+        } catch (error) {
+          console.error(error);
+          this.showAuthMessage(error.message || 'Không tải được dữ liệu Firebase.', true);
+          this.setSyncStatus('Lỗi đồng bộ');
         }
-
-        await this.processAuthenticatedUser(user);
       });
     } else {
       this.showAuthMessage('Firebase chưa được khởi tạo đúng trong firebase.js.', true);
@@ -174,85 +219,12 @@ const App = {
     ['energy-input','calm-input','fomo-input','confidence-input'].forEach(id => document.getElementById(id).addEventListener('input', () => this.updateMindsetValues()));
     ['breath-in','breath-hold','breath-out'].forEach(id => document.getElementById(id).addEventListener('input', () => this.updateBreathSummary()));
     ['trade-theory-file','trade-actual-file','pattern-image-file'].forEach(id => document.getElementById(id).addEventListener('change', (e) => this.handleFilePreview(e)));
+    document.getElementById('trade-pattern-id')?.addEventListener('change', () => this.syncTradePatternSelection(true));
   },
 
   lockApp(locked) {
     document.querySelector('.app-shell').classList.toggle('app-locked', locked);
     document.getElementById('auth-overlay').classList.toggle('hidden', !locked);
-  },
-
-  showSplash() {
-    this.state.splash.hidden = false;
-    document.getElementById('splash-screen')?.classList.remove('hidden');
-    document.getElementById('network-canvas')?.classList.remove('hidden');
-    lucide.createIcons();
-  },
-
-  hideSplash() {
-    this.state.splash.hidden = true;
-    document.getElementById('splash-screen')?.classList.add('hidden');
-    document.getElementById('network-canvas')?.classList.add('hidden');
-  },
-
-  enterLogin() {
-    this.hideSplash();
-    setTimeout(() => document.getElementById('auth-email')?.focus(), 80);
-  },
-
-  initNetworkCanvas() {
-    const canvas = document.getElementById('network-canvas');
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const dpr = Math.max(1, window.devicePixelRatio || 1);
-    const colors = ['#ef4444', '#3b82f6', '#10b981', '#eab308'];
-    const state = this.state.network;
-    const resize = () => {
-      canvas.width = window.innerWidth * dpr;
-      canvas.height = window.innerHeight * dpr;
-      canvas.style.width = window.innerWidth + 'px';
-      canvas.style.height = window.innerHeight + 'px';
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      const count = Math.max(40, Math.min(90, Math.round(window.innerWidth / 28)));
-      state.particles = Array.from({ length: count }, (_, i) => ({
-        x: Math.random() * window.innerWidth,
-        y: Math.random() * window.innerHeight,
-        vx: (Math.random() - 0.5) * 0.35,
-        vy: (Math.random() - 0.5) * 0.35,
-        r: 1.4 + Math.random() * 2.1,
-        color: colors[i % colors.length]
-      }));
-    };
-    const draw = () => {
-      ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
-      for (const p of state.particles) {
-        p.x += p.vx; p.y += p.vy;
-        if (p.x < -20) p.x = window.innerWidth + 20;
-        if (p.x > window.innerWidth + 20) p.x = -20;
-        if (p.y < -20) p.y = window.innerHeight + 20;
-        if (p.y > window.innerHeight + 20) p.y = -20;
-      }
-      for (let i = 0; i < state.particles.length; i += 1) {
-        for (let j = i + 1; j < state.particles.length; j += 1) {
-          const a = state.particles[i], b = state.particles[j];
-          const dx = a.x - b.x, dy = a.y - b.y;
-          const dist = Math.hypot(dx, dy);
-          if (dist < 120) {
-            ctx.beginPath();
-            ctx.strokeStyle = `rgba(203,213,225,${(1 - dist / 120) * 0.24})`;
-            ctx.lineWidth = 1;
-            ctx.moveTo(a.x, a.y);
-            ctx.lineTo(b.x, b.y);
-            ctx.stroke();
-          }
-        }
-      }
-      for (const p of state.particles) {
-        ctx.fillStyle = p.color;
-        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
-      }
-      state.raf = requestAnimationFrame(draw);
-    };
-    resize(); draw(); window.addEventListener('resize', resize);
   },
 
   showAuthMessage(message, isError = false) {
@@ -261,97 +233,100 @@ const App = {
     el.classList.toggle('error', isError);
   },
 
-  setAuthBusy(busy, label = 'Tiếp tục') {
-    const submitBtn = document.querySelector('#auth-overlay .btn-primary');
-    const resetBtn = document.querySelector('#auth-overlay .btn-secondary');
-
-    if (submitBtn) {
-      submitBtn.disabled = busy;
-      submitBtn.style.opacity = busy ? '0.7' : '1';
-      submitBtn.textContent = busy ? label : 'Tiếp tục';
-    }
-
-    if (resetBtn) {
-      resetBtn.disabled = busy;
-      resetBtn.style.opacity = busy ? '0.7' : '1';
-    }
+  isAdminUser(user, profile = null) {
+    const email = (profile?.email || user?.email || '').toLowerCase();
+    return profile?.role === 'admin' || ADMIN_EMAILS.includes(email);
   },
 
-  authErrorMessage(error) {
-    const code = error?.code || '';
-    const map = {
-      'auth/invalid-email': 'Email chưa đúng định dạng.',
-      'auth/missing-password': 'Vui lòng nhập mật khẩu.',
-      'auth/user-not-found': 'Không tìm thấy tài khoản này.',
-      'auth/wrong-password': 'Mật khẩu chưa chính xác.',
-      'auth/invalid-credential': 'Email hoặc mật khẩu chưa đúng.',
-      'auth/email-already-in-use': 'Email này đã được sử dụng.',
-      'auth/weak-password': 'Mật khẩu cần ít nhất 6 ký tự.',
-      'auth/network-request-failed': 'Kết nối mạng đang không ổn định. Vui lòng thử lại.'
-    };
-    return map[code] || error?.message || 'Không thể xác thực tài khoản.';
+  ensureAdminAccess(actionLabel = 'thực hiện thao tác này') {
+    if (this.state.isAdmin) return true;
+    alert(`Chỉ admin mới có quyền ${actionLabel}.`);
+    return false;
   },
 
-  async processAuthenticatedUser(user) {
+  async refreshPendingUsers() {
+    if (!this.state.isAdmin || !FirebaseService.ready) {
+      this.state.pendingUsers = [];
+      return [];
+    }
     try {
-      this.state.user = user || null;
-      this.hideSplash();
-      this.lockApp(false);
-      this.setUserInfo(user);
-      this.setSyncStatus('Đang tải dữ liệu...');
-
-      let cloudData = null;
-      try {
-        await FirebaseService.ensureProfile(user);
-        cloudData = await FirebaseService.loadJournal(user.uid);
-        this.setSyncStatus('Đã sẵn sàng');
-        this.showAuthMessage('Đăng nhập thành công.');
-      } catch (cloudError) {
-        console.error(cloudError);
-        this.showAuthMessage('Đăng nhập thành công nhưng tải dữ liệu chậm. Web đang dùng dữ liệu cục bộ.', true);
-        this.setSyncStatus('Dùng dữ liệu cục bộ');
-      }
-
-      this.data = cloudData || this.loadLocalCache() || this.demo();
-      this.recomputeTrades();
-      this.saveLocalCache();
-      this.renderAll();
-      return true;
+      this.state.pendingUsers = await FirebaseService.listPendingUsers();
+      return this.state.pendingUsers;
     } catch (error) {
       console.error(error);
-      this.lockApp(false);
-      this.hideSplash();
-      this.data = this.loadLocalCache() || this.demo();
-      this.recomputeTrades();
-      this.renderAll();
-      this.setSyncStatus('Đã đăng nhập');
-      return false;
+      this.state.pendingUsers = [];
+      return [];
     }
   },
 
-  async completeLoginFallback() {
-    const started = Date.now();
+  updateAdminActionButtons() {
+    const watchBtn = document.getElementById('scan-add-watch-btn');
+    const patternBtn = document.getElementById('pattern-create-btn');
+    [watchBtn, patternBtn].forEach(btn => {
+      if (!btn) return;
+      btn.classList.toggle('hidden', !this.state.isAdmin);
+    });
+  },
 
-    while (Date.now() - started < 3500) {
-      if (this.state.user) return true;
-
-      const currentUser = window.auth?.currentUser || null;
-      if (currentUser) {
-        await this.processAuthenticatedUser(currentUser);
-        return true;
-      }
-
-      await new Promise(resolve => setTimeout(resolve, 120));
+  renderApprovalPanel() {
+    const wrap = document.getElementById('admin-approval-section');
+    const list = document.getElementById('admin-approval-list');
+    const count = document.getElementById('admin-approval-count');
+    if (!wrap || !list || !count) return;
+    if (!this.state.isAdmin) {
+      wrap.classList.add('hidden');
+      list.innerHTML = '';
+      count.textContent = '0';
+      return;
     }
+    wrap.classList.remove('hidden');
+    const pending = this.state.pendingUsers || [];
+    count.textContent = String(pending.length);
+    list.innerHTML = pending.length ? pending.map(u => `
+      <div class="rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/70">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <div class="font-semibold text-lg">${u.name || u.email || 'Tài khoản mới'}</div>
+            <div class="text-sm muted break-all">${u.email || ''}</div>
+            <div class="text-xs text-zinc-500 dark:text-zinc-400 mt-1">UID: ${u.uid || u.id}</div>
+          </div>
+          <div class="flex gap-2 flex-wrap justify-end">
+            <button class="btn-primary !py-2 !px-4" onclick="App.approvePendingUser('${u.id}')">Phê duyệt</button>
+            <button class="btn-secondary !py-2 !px-4" onclick="App.rejectPendingUser('${u.id}')">Từ chối</button>
+          </div>
+        </div>
+      </div>`).join('') : '<div class="text-sm muted">Hiện không có tài khoản nào chờ phê duyệt.</div>';
+  },
 
-    this.lockApp(false);
-    this.hideSplash();
-    this.data = this.loadLocalCache() || this.demo();
-    this.recomputeTrades();
-    this.renderAll();
-    this.showAuthMessage('Đăng nhập thành công nhưng kết nối dữ liệu phản hồi chậm. Web đã mở bằng dữ liệu cục bộ.', true);
-    this.setSyncStatus('Mở bằng dữ liệu cục bộ');
-    return false;
+  async approvePendingUser(uid) {
+    if (!this.ensureAdminAccess('phê duyệt tài khoản')) return;
+    await FirebaseService.approveUser(uid);
+    await this.refreshPendingUsers();
+    this.renderApprovalPanel();
+  },
+
+  async rejectPendingUser(uid) {
+    if (!this.ensureAdminAccess('từ chối tài khoản')) return;
+    await FirebaseService.rejectUser(uid);
+    await this.refreshPendingUsers();
+    this.renderApprovalPanel();
+  },
+
+  syncTradePatternSelection(force = false) {
+    const patternId = document.getElementById('trade-pattern-id')?.value || '';
+    const pattern = this.getPatternById(patternId);
+    if (!pattern) return;
+    const strategyEl = document.getElementById('trade-strategy');
+    const setupEl = document.getElementById('trade-setup');
+    const checklistEl = document.getElementById('trade-checklist');
+    const theoryUrlEl = document.getElementById('trade-theory-url');
+    const theoryPreview = document.getElementById('trade-theory-preview');
+    const linkedConditions = [...(pattern.conditions || []), ...(pattern.triggers || [])].filter(Boolean);
+    if (strategyEl && (force || !strategyEl.value.trim())) strategyEl.value = pattern.strategy || '';
+    if (setupEl && (force || !setupEl.value.trim())) setupEl.value = pattern.name || '';
+    if (checklistEl && (force || !checklistEl.value.trim())) checklistEl.value = linkedConditions.join('\n');
+    if (theoryUrlEl && pattern.image && (force || !theoryUrlEl.value.trim())) theoryUrlEl.value = pattern.image;
+    if (theoryPreview && pattern.image) theoryPreview.src = this.resolveImage(pattern.image);
   },
 
   setUserInfo(user) {
@@ -392,13 +367,13 @@ const App = {
     if (!this.state.user || this.state.isSaving) return;
     this.state.isSaving = true;
     try {
-      this.setSyncStatus('Đang lưu Firebase...');
+      this.setSyncStatus('Đang lưu dữ liệu...');
       await FirebaseService.saveJournal(this.state.user.uid, this.data);
-      this.setSyncStatus('Đã lưu lên Firebase');
+      this.setSyncStatus('Đã lưu dữ liệu');
     } catch (error) {
       console.error(error);
       this.setSyncStatus('Lưu thất bại');
-      alert('Không lưu được lên Firebase: ' + (error.message || error));
+      alert('Không lưu được dữ liệu: ' + (error.message || error));
     } finally {
       this.state.isSaving = false;
     }
@@ -468,6 +443,8 @@ const App = {
     this.renderMarket();
     this.renderMindset();
     this.renderReview();
+    this.renderApprovalPanel();
+    this.updateAdminActionButtons();
     this.updateMission();
     lucide.createIcons();
   },
@@ -585,7 +562,7 @@ const App = {
         <div class="flex gap-2 flex-wrap">
           <button class="btn-primary !py-2 !px-4" onclick="App.prefillTradeFromWatchlist('${w.id}')">Tạo lệnh</button>
           <button class="btn-secondary !py-2 !px-4" onclick="App.openPatternFromWatchlist('${w.id}')">Mở checklist</button>
-          ${compact ? '' : `<button class="btn-secondary !py-2 !px-4" onclick="App.openWatchlistModal('${w.id}')">Sửa</button><button class="btn-secondary !py-2 !px-4" onclick="App.deleteWatchlist('${w.id}')">Xóa</button>`}
+          ${compact || !this.state.isAdmin ? '' : `<button class="btn-secondary !py-2 !px-4" onclick="App.openWatchlistModal('${w.id}')">Sửa</button><button class="btn-secondary !py-2 !px-4" onclick="App.deleteWatchlist('${w.id}')">Xóa</button>`}
         </div>
       </div>`).join('') || '<div class="text-sm muted">Chưa có dữ liệu.</div>';
   },
@@ -641,6 +618,7 @@ const App = {
   renderTradeDetail() {
     const t = this.getTradeById(this.state.selectedTradeId);
     const p = this.getPatternById(t?.patternId);
+    const linkedConditions = [...(p?.conditions || []), ...(p?.triggers || [])].filter(Boolean);
     const card = document.getElementById('trade-detail-card');
     if (!t) {
       card.innerHTML = '<div>Chưa có lệnh.</div>';
@@ -654,7 +632,7 @@ const App = {
         <div class="trade-kv"><div class="font-semibold mb-3">Biểu đồ vào lệnh thực tế</div><div class="image-preview-box !aspect-[4/2.7]" onclick="App.zoomImage('${this.resolveImage(t.actualImage || '')}')">${t.actualImage ? `<img src="${this.resolveImage(t.actualImage)}">` : '<div class="muted text-sm">Chưa có ảnh</div>'}</div></div>
       </div>
       <div class="grid lg:grid-cols-2 gap-4">
-        <div class="trade-kv"><div class="font-semibold mb-3">Checklist trước lệnh</div><div class="space-y-2">${(t.checklist || p?.conditions || []).map(c => `<div class="mini-row"><span>${c}</span><strong>Check</strong></div>`).join('') || '<div class="text-sm muted">Chưa có checklist.</div>'}</div></div>
+        <div class="trade-kv"><div class="font-semibold mb-3">Checklist trước lệnh</div><div class="space-y-2">${((t.checklist && t.checklist.length) ? t.checklist : linkedConditions).map(c => `<div class="mini-row"><span>${c}</span><strong>Check</strong></div>`).join('') || '<div class="text-sm muted">Chưa có checklist.</div>'}</div></div>
         <div class="trade-kv"><div class="font-semibold mb-3">Ghi chú & cảm xúc</div><div class="text-sm leading-6 text-zinc-600 dark:text-zinc-300 mb-4">${t.note || ''}</div><div class="flex flex-wrap gap-2 mb-4">${this.emotionChip(t.emotion)}${this.mistakeChip(t.mistake)}</div><div class="flex gap-2"><button class="btn-primary" onclick="App.openTradeModal('${t.id}')">Sửa lệnh</button><button class="btn-secondary" onclick="App.switchTab('review')">Review</button></div></div>
       </div>`;
   },
@@ -723,7 +701,7 @@ const App = {
         <div class="flex justify-between items-start gap-3 mb-2"><div><div class="text-2xl font-semibold">${p.name}</div><div class="muted text-sm">${p.strategy}</div></div><button class="btn-secondary !py-2 !px-3" onclick="App.comparePattern('${p.id}')">So sánh</button></div>
         <p class="text-sm leading-6 text-zinc-600 dark:text-zinc-300 mb-4">${p.description || ''}</p>
         <div class="grid gap-3 mb-4"><div><div class="text-sm font-semibold mb-2">Điều kiện nền</div>${(p.conditions || []).map(c => `<div class="mini-row mb-2"><span>${c}</span><strong>Đạt</strong></div>`).join('')}</div><div><div class="text-sm font-semibold mb-2">Điều kiện kích hoạt</div>${(p.triggers || []).map(c => `<div class="mini-row mb-2"><span>${c}</span><strong>Check</strong></div>`).join('')}</div></div>
-        <div class="flex gap-2 flex-wrap"><button class="btn-primary !py-2 !px-4" onclick="App.openPatternModal('${p.id}')">Chỉnh sửa</button><button class="btn-secondary !py-2 !px-4" onclick="App.deletePattern('${p.id}')">Xóa</button></div>
+        <div class="flex gap-2 flex-wrap">${this.state.isAdmin ? `<button class="btn-primary !py-2 !px-4" onclick="App.openPatternModal('${p.id}')">Chỉnh sửa</button><button class="btn-secondary !py-2 !px-4" onclick="App.deletePattern('${p.id}')">Xóa</button>` : `<span class="table-chip gray">Chỉ admin mới chỉnh sửa</span>`}</div>
       </div>`).join('');
   },
 
@@ -874,10 +852,14 @@ const App = {
   },
 
   updateMission() {
-    document.getElementById('mission-dist').textContent = this.data.market.distDays;
-    document.getElementById('mission-risk').textContent = this.marketStateLabel().title;
-    document.getElementById('mission-sectors').textContent = this.leadingSectorText();
-    document.getElementById('sidebar-breath-bar').style.width = `${Math.max(15, this.data.mindset.calm * 10)}%`;
+    const missionDist = document.getElementById('mission-dist');
+    const missionRisk = document.getElementById('mission-risk');
+    const missionSectors = document.getElementById('mission-sectors');
+    const breathBar = document.getElementById('sidebar-breath-bar');
+    if (missionDist) missionDist.textContent = this.data.market.distDays;
+    if (missionRisk) missionRisk.textContent = this.marketStateLabel().title;
+    if (missionSectors) missionSectors.textContent = this.leadingSectorText();
+    if (breathBar) breathBar.style.width = `${Math.max(15, this.data.mindset.calm * 10)}%`;
   },
 
   prefillTradeFromWatchlist(id) {
@@ -952,6 +934,7 @@ const App = {
     document.getElementById('trade-actual-file').value = '';
     document.getElementById('trade-modal-title').textContent = id ? 'Chỉnh sửa lệnh' : 'Tạo lệnh mới';
     document.getElementById('trade-modal').classList.remove('hidden');
+    this.syncTradePatternSelection(false);
   },
 
   closeTradeModal() { document.getElementById('trade-modal').classList.add('hidden'); },
@@ -965,14 +948,20 @@ const App = {
       if (theoryFile) theoryImage = await FirebaseService.uploadFile(this.state.user.uid, theoryFile, 'trades/theory');
       if (actualFile) actualImage = await FirebaseService.uploadFile(this.state.user.uid, actualFile, 'trades/actual');
 
+      const selectedPatternId = document.getElementById('trade-pattern-id').value;
+      const linkedPattern = this.getPatternById(selectedPatternId);
+      const manualChecklist = document.getElementById('trade-checklist').value.split('\n').map(s => s.trim()).filter(Boolean);
+      const fallbackChecklist = [...(linkedPattern?.conditions || []), ...(linkedPattern?.triggers || [])].filter(Boolean);
+      if (!theoryImage && linkedPattern?.image) theoryImage = linkedPattern.image;
+
       const obj = {
         id: this.state.editingTradeId || 't' + Date.now(),
         symbol: document.getElementById('trade-symbol').value.trim(),
         sector: document.getElementById('trade-sector').value.trim(),
         entryDate: document.getElementById('trade-entry-date').value,
         exitDate: document.getElementById('trade-exit-date').value,
-        strategy: document.getElementById('trade-strategy').value.trim(),
-        setup: document.getElementById('trade-setup').value.trim(),
+        strategy: document.getElementById('trade-strategy').value.trim() || linkedPattern?.strategy || '',
+        setup: document.getElementById('trade-setup').value.trim() || linkedPattern?.name || '',
         entry: Number(document.getElementById('trade-entry').value || 0),
         stop: Number(document.getElementById('trade-stop').value || 0),
         exit: document.getElementById('trade-exit').value ? Number(document.getElementById('trade-exit').value) : null,
@@ -984,8 +973,8 @@ const App = {
         emotion: document.getElementById('trade-emotion').value,
         mistake: document.getElementById('trade-mistake').value,
         marketPulse: document.getElementById('trade-market-pulse').value,
-        patternId: document.getElementById('trade-pattern-id').value,
-        checklist: document.getElementById('trade-checklist').value.split('\n').map(s => s.trim()).filter(Boolean),
+        patternId: selectedPatternId,
+        checklist: manualChecklist.length ? manualChecklist : fallbackChecklist,
         note: document.getElementById('trade-note').value,
         theoryImage,
         actualImage
@@ -1004,6 +993,7 @@ const App = {
   },
 
   openWatchlistModal(id = null) {
+    if (!this.ensureAdminAccess('mở chỉnh sửa Scan & Watchlist')) return;
     this.state.editingWatchlistId = id;
     const w = id ? this.data.watchlists.find(x => x.id === id) : { group: 'near', risk: 'Thấp' };
     const set = (id, v = '') => { document.getElementById(id).value = v ?? ''; };
@@ -1021,6 +1011,7 @@ const App = {
   closeWatchlistModal() { document.getElementById('watchlist-modal').classList.add('hidden'); },
 
   saveWatchlist() {
+    if (!this.ensureAdminAccess('lưu Scan & Watchlist')) return;
     const patternId = document.getElementById('watch-pattern-id').value;
     const obj = {
       id: this.state.editingWatchlistId || 'w' + Date.now(),
@@ -1041,6 +1032,7 @@ const App = {
   },
 
   deleteWatchlist(id) {
+    if (!this.ensureAdminAccess('xóa Scan & Watchlist')) return;
     if (!confirm('Xóa watchlist này?')) return;
     this.data.watchlists = this.data.watchlists.filter(x => x.id !== id);
     this.persist();
@@ -1048,6 +1040,7 @@ const App = {
   },
 
   openPatternModal(id = null) {
+    if (!this.ensureAdminAccess('mở chỉnh sửa mẫu hình')) return;
     this.state.editingPatternId = id;
     const p = id ? this.getPatternById(id) : {};
     const set = (id, v = '') => { document.getElementById(id).value = v ?? ''; };
@@ -1066,6 +1059,7 @@ const App = {
   closePatternModal() { document.getElementById('pattern-modal').classList.add('hidden'); },
 
   async savePattern() {
+    if (!this.ensureAdminAccess('lưu mẫu hình')) return;
     try {
       let patternImage = document.getElementById('pattern-image-url').value || document.getElementById('pattern-image-preview').src || '';
       const patternFile = document.getElementById('pattern-image-file').files?.[0];
@@ -1091,6 +1085,7 @@ const App = {
   },
 
   deletePattern(id) {
+    if (!this.ensureAdminAccess('xóa mẫu hình')) return;
     if (!confirm('Xóa mẫu hình này?')) return;
     this.data.patterns = this.data.patterns.filter(x => x.id !== id);
     this.data.watchlists = this.data.watchlists.map(w => w.patternId === id ? { ...w, patternId: '' } : w);
@@ -1133,32 +1128,26 @@ const AuthUI = {
     document.getElementById('auth-tab-login').classList.toggle('active', mode === 'login');
     document.getElementById('auth-tab-register').classList.toggle('active', mode === 'register');
     document.getElementById('auth-name-wrap').style.display = mode === 'register' ? 'grid' : 'none';
-    App.showAuthMessage(
-      mode === 'login'
-        ? 'Đăng nhập để vào hệ thống'
-        : 'Tạo tài khoản mới'
-    );
+    const title = document.querySelector('.auth-form-title');
+    if (title) title.textContent = mode === 'login' ? 'Đăng nhập' : 'Tạo tài khoản';
+    App.showAuthMessage(mode === 'login' ? 'Đăng nhập để đồng bộ dữ liệu cá nhân, ảnh biểu đồ và nhật ký đầu tư.' : 'Tạo tài khoản mới. Tài khoản sẽ chờ admin phê duyệt trước khi sử dụng đầy đủ.');
   },
 
   async submit() {
     const name = document.getElementById('auth-name')?.value.trim() || '';
     const email = document.getElementById('auth-email')?.value.trim() || '';
     const password = document.getElementById('auth-password')?.value.trim() || '';
-
     try {
       if (!email || !password) throw new Error('Vui lòng nhập email và mật khẩu.');
-
       App.setAuthBusy(true, App.state.authMode === 'register' ? 'Đang tạo tài khoản...' : 'Đang đăng nhập...');
       App.showAuthMessage(App.state.authMode === 'register' ? 'Đang tạo tài khoản...' : 'Đang đăng nhập...');
-
       if (App.state.authMode === 'register') {
         await App.register(name, email, password);
-        App.showAuthMessage('Tạo tài khoản thành công. Đang mở hệ thống...');
+        App.showAuthMessage('Tạo tài khoản thành công. Nếu bạn không phải admin, tài khoản sẽ chờ phê duyệt trước khi sử dụng đầy đủ.');
       } else {
         await App.login(email, password);
         App.showAuthMessage('Đăng nhập thành công. Đang mở hệ thống...');
       }
-
       await App.completeLoginFallback();
     } catch (error) {
       console.error(error);
@@ -1180,6 +1169,6 @@ const AuthUI = {
   }
 };
 
-window.App = App;window.App = App;
+window.App = App;
 window.AuthUI = AuthUI;
 window.addEventListener('DOMContentLoaded', () => App.init());

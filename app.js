@@ -675,11 +675,12 @@ enterLogin() {
     }
   ]
 },
-  ensureDashboardReminders() {
-    if (!Array.isArray(this.data.dashboardReminders) || !this.data.dashboardReminders.length) {
-      this.data.dashboardReminders = this.getDefaultReminders();
-    }
-  };
+ ensureDashboardReminders() {
+  if (!this.data) this.data = this.demo();
+  if (!Array.isArray(this.data.dashboardReminders) || this.data.dashboardReminders.length === 0) {
+    this.data.dashboardReminders = this.getDefaultReminders();
+  }
+},
   loadLocalCache() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);

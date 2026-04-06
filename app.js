@@ -680,7 +680,7 @@ enterLogin() {
     if (!Array.isArray(this.data.dashboardReminders) || !this.data.dashboardReminders.length) {
       this.data.dashboardReminders = this.getDefaultReminders();
     }
-  }
+  },
 
   loadLocalCache() {
     try {

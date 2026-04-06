@@ -673,15 +673,13 @@ enterLogin() {
       title: 'Ưu tiên setup', 
       image: 'https://via.placeholder.com/400x300?text=Ưu+tiên+setup' 
     }
-  ];
-}
-
+  ]
+},
   ensureDashboardReminders() {
     if (!Array.isArray(this.data.dashboardReminders) || !this.data.dashboardReminders.length) {
       this.data.dashboardReminders = this.getDefaultReminders();
     }
   };
-
   loadLocalCache() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);

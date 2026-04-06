@@ -657,12 +657,24 @@ enterLogin() {
   },
 
   getDefaultReminders() {
-    return [
-      { id: 'r1', title: 'Kiểm soát phản ứng', image: 'reminder_poster_1.png' },
-      { id: 'r2', title: 'Cắt lỗ nhanh', image: 'reminder_poster_2.png' },
-      { id: 'r3', title: 'Ưu tiên setup', image: 'reminder_poster_3.png' }
-    ];
-  },
+  return [
+    { 
+      id: 'r1', 
+      title: 'Kiểm soát phản ứng', 
+      image: 'https://via.placeholder.com/400x300?text=Kiểm+soát+phản+ứng' 
+    },
+    { 
+      id: 'r2', 
+      title: 'Cắt lỗ nhanh', 
+      image: 'https://via.placeholder.com/400x300?text=Cắt+lỗ+nhanh' 
+    },
+    { 
+      id: 'r3', 
+      title: 'Ưu tiên setup', 
+      image: 'https://via.placeholder.com/400x300?text=Ưu+tiên+setup' 
+    }
+  ];
+}
 
   ensureDashboardReminders() {
     if (!Array.isArray(this.data.dashboardReminders) || !this.data.dashboardReminders.length) {

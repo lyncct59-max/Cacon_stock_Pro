@@ -25,7 +25,6 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body class="bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
-  <!-- AUTH OVERLAY & MODALS -->
   <div id="auth-overlay" class="auth-overlay">
     <div id="prelogin-splash" class="prelogin-screen">
       <div class="prelogin-shell">
@@ -92,9 +91,7 @@
     </div>
   </div>
 
-  <!-- MAIN APP -->
   <div class="min-h-screen flex app-shell app-locked">
-    <!-- SIDEBAR -->
     <aside class="w-[280px] shrink-0 border-r border-zinc-200 bg-white px-5 py-5 dark:border-zinc-800 dark:bg-zinc-950 hidden lg:flex lg:flex-col gap-5">
       <div class="flex items-center gap-3">
         <div class="w-12 h-12 rounded-2xl bg-brand-100 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300 flex items-center justify-center">
@@ -144,7 +141,6 @@
       </section>
     </aside>
 
-    <!-- MAIN CONTENT -->
     <div class="flex-1 min-w-0">
       <header class="sticky top-0 z-30 border-b border-zinc-200 bg-white/90 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/90">
         <div class="px-4 lg:px-6 py-4 flex items-center justify-between gap-3">
@@ -174,7 +170,6 @@
       </header>
 
       <main class="p-4 lg:p-6 space-y-6">
-        <!-- DASHBOARD SCREEN -->
         <section data-screen="dashboard" class="screen space-y-6">
           <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-5" id="dashboard-kpis"></div>
           <div class="grid gap-4 md:grid-cols-4" id="dashboard-actions"></div>
@@ -205,18 +200,16 @@
               </div>
             </section>
           </div>
-          <!-- DASHBOARD REMINDERS -->
           <section class="card p-5">
             <div class="section-head"><div><h2>Nhắc nhở hàng ngày</h2><p>Poster động lực cho trader trước mỗi phiên</p></div><div id="dashboard-reminder-admin"></div></div>
             <div id="trader-reminder-grid" class="grid gap-4 lg:grid-cols-3"></div>
           </section>
         </section>
 
-        <!-- SCAN SCREEN -->
         <section data-screen="scan" class="screen hidden space-y-6">
           <div class="card p-5">
             <div class="section-head">
-              <div><h2>Scan & Watchlist</h2><p>Quản lý 3 nhóm: Gần điểm mua, Theo dõi, Dài hạn.</p></div>
+              <div><h2>Scan & Watchlist</h2><p>Quản lý 3 nhóm: Gần điểm mua, Theo dõi, Dài hạn. Kế hoạch lấy từ modul Mẫu hình.</p></div>
               <div class="flex gap-2"><button class="btn-secondary" onclick="App.openWatchlistModal()"><i data-lucide="plus"></i>Thêm watchlist</button></div>
             </div>
             <div class="grid gap-6 lg:grid-cols-3">
@@ -227,11 +220,10 @@
           </div>
         </section>
 
-        <!-- JOURNAL SCREEN -->
         <section data-screen="journal" class="screen hidden space-y-6">
           <div class="card p-5">
             <div class="section-head">
-              <div><h2>Bảng thống kê lệnh</h2><p>Lọc theo thời gian, trạng thái, kết quả.</p></div>
+              <div><h2>Bảng thống kê lệnh</h2><p>Lọc theo thời gian, trạng thái, kết quả. Bấm vào từng dòng để mở chi tiết và liên kết mẫu hình.</p></div>
               <div class="flex gap-2 flex-wrap">
                 <input id="filter-start" type="date" class="field-input" />
                 <input id="filter-end" type="date" class="field-input" />
@@ -255,18 +247,116 @@
           </div>
         </section>
 
-        <!-- OTHER SCREENS (Sizing, Patterns, Market, Mindset, Review) -->
         <section data-screen="sizing" class="screen hidden"><div class="card p-5" id="sizing-standalone"></div></section>
-        <section data-screen="patterns" class="screen hidden space-y-6"><div class="card p-5"><div class="section-head"><div><h2>Mẫu hình giao dịch</h2><p>CRUD mẫu hình, ảnh minh họa, điều kiện nền, điều kiện kích hoạt.</p></div><button class="btn-secondary" onclick="App.openPatternModal()"><i data-lucide="plus"></i>Tạo mẫu</button></div><div id="pattern-grid" class="grid gap-5 lg:grid-cols-2 xl:grid-cols-3"></div></div></section>
-        <section data-screen="market" class="screen hidden space-y-6"><div class="grid gap-6 xl:grid-cols-[.95fr_1.05fr]"><section class="card p-5"><div class="section-head"><div><h2>Thị trường tổng quan</h2><p>Nhập thủ công số ngày phân phối, tâm lý và nhóm ngành dẫn dắt.</p></div></div><div class="grid md:grid-cols-2 gap-4 mb-4"><label class="field-block"><span>Số ngày phân phối</span><input id="market-dist-input" type="number" class="field-input" min="0" max="10"></label><label class="field-block"><span>Tâm lý thị trường</span><select id="market-sentiment-input" class="field-input"><option>Tích cực</option><option>Trung tính</option><option>Tiêu cực</option></select></label></div><label class="field-block mb-4"><span>Ngành dẫn dắt (ngăn cách dấu phẩy)</span><input id="market-sectors-input" class="field-input" placeholder="Chứng khoán, Công nghệ"></label><label class="field-block mb-4"><span>Nhận định thêm</span><textarea id="market-note-input" class="field-input min-h-[88px]"></textarea></label><div id="market-guidance" class="rounded-2xl p-4 bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:text-amber-100"></div><button class="btn-primary w-full" onclick="App.saveMarket()">Lưu thị trường</button></section><section class="card p-5"><div class="section-head"><div><h2>Bảng trạng thái thị trường</h2><p>Tự động diễn giải theo số ngày phân phối.</p></div></div><div class="grid md:grid-cols-2 gap-4 mb-4"><div class="stat-box"><div>Số ngày phân phối</div><strong id="market-dist-view"></strong><span id="market-state-view"></span></div></div><div class="rounded-2xl bg-zinc-50 p-4 dark:bg-zinc-900/70 mb-4"><div class="text-sm font-medium mb-2">Ngành dẫn dắt</div><div id="market-sector-tags" class="flex flex-wrap gap-2"></div></div><div class="rounded-2xl bg-zinc-50 p-4 dark:bg-zinc-900/70"><div class="text-sm font-medium mb-2">Hành động đề xuất</div><div id="market-action-text" class="text-sm leading-6"></div></div></section></div></section>
-        <section data-screen="mindset" class="screen hidden space-y-6"><div class="grid gap-6 xl:grid-cols-[1fr_1fr]"><section class="card p-5"><div class="section-head"><div><h2>Check-in trước phiên</h2><p>Có thể chỉnh sửa và lưu. Kết hợp định hướng 1 ngày làm việc chuyên nghiệp.</p></div></div><div class="grid gap-4 mb-5"><label class="field-block"><span>Mức năng lượng <b id="energy-value"></b></span><input id="energy-input" type="range" min="0" max="10" class="w-full"></label><label class="field-block"><span>Độ bình tĩnh <b id="calm-value"></b></span><input id="calm-input" type="range" min="0" max="10" class="w-full"></label><label class="field-block"><span>Mức FOMO <b id="fomo-value"></b></span><input id="fomo-input" type="range" min="0" max="10" class="w-full"></label><label class="field-block"><span>Mức tự tin <b id="confidence-value"></b></span><input id="confidence-input" type="range" min="0" max="10" class="w-full"></label></div><label class="field-block mb-5"><span>Check-list trước phiên</span><textarea id="preflight-note" class="field-input min-h-[100px]"></textarea></label><button class="btn-primary w-full" onclick="App.saveMindset()">Lưu check-in</button></section><section class="card p-5"><div class="section-head"><div><h2>Rèn luyện tâm lý</h2><p>Nhịp 4-7-8 có biểu đồ nhịp thở để làm theo.</p></div></div><div class="grid md:grid-cols-3 gap-4 mb-4"><label class="field-block"><span>Hít vào (giây)</span><input id="breath-in" type="number" class="field-input" min="1" max="20" value="4"></label><label class="field-block"><span>Giữ (giây)</span><input id="breath-hold" type="number" class="field-input" min="1" max="20" value="7"></label><label class="field-block"><span>Thở ra (giây)</span><input id="breath-out" type="number" class="field-input" min="1" max="20" value="8"></label></div><div class="rounded-3xl border border-zinc-200 p-5 dark:border-zinc-800 text-center mb-4"><div class="text-sm text-zinc-500 dark:text-zinc-400 mb-3">Biểu đồ nhịp thở</div><div class="mx-auto mt-5 breath-circle expand" id="breath-circle"></div><div class="text-2xl font-bold mt-5 text-brand-600 dark:text-brand-300"><span id="breathing-stage">Hít vào</span> <span id="breath-timer">4</span>s</div><div class="h-1 rounded-full bg-zinc-200 dark:bg-zinc-800 mt-5"><div id="breath-progress" class="h-full w-0 bg-brand-500 rounded-full"></div></div></div><div class="flex gap-2 mb-4"><button class="btn-primary" onclick="App.startBreathing()">Bắt đầu bài thở 5 phút</button><button class="btn-secondary" onclick="App.stopBreathing()">Dừng</button></div><div class="rounded-2xl bg-brand-50 p-4 text-brand-800 dark:bg-brand-500/10 dark:text-brand-100" id="breath-summary"></div></section></div></section>
-        <section data-screen="review" class="screen hidden space-y-6"><div class="grid gap-6 xl:grid-cols-[1fr_1fr]"><section class="card p-5"><div class="section-head"><div><h2>Review tuần / tháng</h2><p>Tự t��ng hợp từ các lệnh trong nhật ký hoặc chỉnh sửa và lưu.</p></div></div><div id="review-summary" class="grid gap-4 mb-5"></div><label class="field-block mb-4"><span>Bài học tuần</span><textarea id="weekly-review-note" class="field-input min-h-[110px]"></textarea></label><label class="field-block"><span>Bài học tháng</span><textarea id="monthly-review-note" class="field-input min-h-[120px]"></textarea></label><button class="btn-primary w-full" onclick="App.saveReview()">Lưu review</button></section><section class="card p-5"><div class="section-head"><div><h2>Hậu kiểm (Post-mortem)</h2><p>Tự động trích xuất các lệnh lỗ lớn nhất để cải thiện tư duy đặt lệnh.</p></div></div><div id="postmortem-list"></div></section></div></section>
+
+        <section data-screen="patterns" class="screen hidden space-y-6">
+          <div class="card p-5">
+            <div class="section-head"><div><h2>Mẫu hình giao dịch</h2><p>CRUD mẫu hình, ảnh minh họa, điều kiện nền, điều kiện kích hoạt. Liên kết sang so sánh trước khi vào lệnh.</p></div><button class="btn-secondary" onclick="App.openPatternModal()"><i data-lucide="plus"></i>Tạo mẫu</button></div>
+            <div id="pattern-grid" class="grid gap-5 lg:grid-cols-2 xl:grid-cols-3"></div>
+          </div>
+        </section>
+
+        <section data-screen="market" class="screen hidden space-y-6">
+          <div class="grid gap-6 xl:grid-cols-[.95fr_1.05fr]">
+            <section class="card p-5">
+              <div class="section-head"><div><h2>Thị trường tổng quan</h2><p>Nhập thủ công số ngày phân phối, tâm lý và nhóm ngành dẫn dắt. Hệ thống tự suy luận hành động.</p></div></div>
+              <div class="grid md:grid-cols-2 gap-4 mb-4">
+                <label class="field-block"><span>Số ngày phân phối</span><input id="market-dist-input" type="number" class="field-input" min="0" max="10"></label>
+                <label class="field-block"><span>Tâm lý thị trường</span><select id="market-sentiment-input" class="field-input"><option>Tích cực</option><option>Trung tính</option><option>Tiêu cực</option></select></label>
+              </div>
+              <label class="field-block mb-4"><span>Ngành dẫn dắt (ngăn cách dấu phẩy)</span><input id="market-sectors-input" class="field-input" placeholder="Chứng khoán, Công nghệ"></label>
+              <label class="field-block mb-4"><span>Nhận định thêm</span><textarea id="market-note-input" class="field-input min-h-[88px]"></textarea></label>
+              <div id="market-guidance" class="rounded-2xl p-4 bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:text-amber-100"></div>
+              <button class="btn-primary w-full mt-4" onclick="App.saveMarket()">Lưu thị trường</button>
+            </section>
+            <section class="card p-5">
+              <div class="section-head"><div><h2>Bảng trạng thái thị trường</h2><p>Tự động diễn giải theo số ngày phân phối.</p></div></div>
+              <div class="grid md:grid-cols-2 gap-4 mb-4">
+                <div class="stat-box"><div>Số ngày phân phối</div><strong id="market-dist-view">0</strong><span id="market-state-view">—</span></div>
+                <div class="stat-box"><div>Tâm lý</div><strong id="market-sentiment-view">—</strong></div>
+              </div>
+              <div class="rounded-2xl bg-zinc-50 p-4 dark:bg-zinc-900/70 mb-4">
+                <div class="text-sm font-medium mb-2">Ngành dẫn dắt</div>
+                <div id="market-sector-tags" class="flex flex-wrap gap-2"></div>
+              </div>
+              <div class="rounded-2xl bg-zinc-50 p-4 dark:bg-zinc-900/70">
+                <div class="text-sm font-medium mb-2">Hành động đề xuất</div>
+                <div id="market-action-text" class="text-sm leading-6">—</div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section data-screen="mindset" class="screen hidden space-y-6">
+          <div class="grid gap-6 xl:grid-cols-[1fr_1fr]">
+            <section class="card p-5">
+              <div class="section-head"><div><h2>Check-in trước phiên</h2><p>Có thể chỉnh sửa và lưu. Kết hợp định hướng 1 ngày làm việc của trader chuyên nghiệp.</p></div></div>
+              <div class="grid gap-4 mb-5">
+                <label class="field-block"><span>Mức năng lượng <b id="energy-value">5/10</b></span><input id="energy-input" type="range" min="0" max="10" class="w-full" value="5"></label>
+                <label class="field-block"><span>Độ bình tĩnh <b id="calm-value">5/10</b></span><input id="calm-input" type="range" min="0" max="10" class="w-full" value="5"></label>
+                <label class="field-block"><span>Mức FOMO <b id="fomo-value">5/10</b></span><input id="fomo-input" type="range" min="0" max="10" class="w-full" value="5"></label>
+                <label class="field-block"><span>Mức tự tin <b id="confidence-value">5/10</b></span><input id="confidence-input" type="range" min="0" max="10" class="w-full" value="5"></label>
+              </div>
+              <label class="field-block mb-5"><span>Check-list trước phiên</span><textarea id="preflight-note" class="field-input min-h-[100px]"></textarea></label>
+              <div class="rounded-2xl bg-zinc-50 p-4 dark:bg-zinc-900/70">
+                <div class="text-lg font-semibold mb-2">Một ngày làm việc của trader chuyên nghiệp</div>
+                <ul class="list-disc pl-5 text-sm space-y-1 text-zinc-600 dark:text-zinc-300">
+                  <li>06:00 - Thức dậy, thiền/yoga, bữa sáng</li>
+                  <li>07:30 - Review thị trường tuần/tháng</li>
+                  <li>08:00 - Kiểm tra watchlist, chuẩn bị kế hoạch</li>
+                  <li>09:00 - Phiên giao dịch bắt đầu</li>
+                  <li>12:00 - Nghỉ trưa, đi bộ</li>
+                  <li>14:00 - Phiên chiều, quản lý vị thế</li>
+                  <li>15:30 - Phiên kết thúc, review trades</li>
+                  <li>16:00 - Rút kinh nghiệm, cập nhật log</li>
+                  <li>17:00 - Lên kế hoạch hôm sau</li>
+                  <li>20:00 - Tập thể dục, tối thiểu 2h ngoài màn hình</li>
+                </ul>
+              </div>
+              <button class="btn-primary w-full mt-4" onclick="App.saveMindset()">Lưu check-in</button>
+            </section>
+            <section class="card p-5">
+              <div class="section-head"><div><h2>Rèn luyện tâm lý</h2><p>Nhịp 4-7-8 có biểu đồ nhịp thở để người dùng làm theo.</p></div></div>
+              <div class="grid md:grid-cols-3 gap-4 mb-4">
+                <label class="field-block"><span>Hít vào (giây)</span><input id="breath-in" type="number" class="field-input" min="1" max="20" value="4"></label>
+                <label class="field-block"><span>Giữ (giây)</span><input id="breath-hold" type="number" class="field-input" min="1" max="20" value="7"></label>
+                <label class="field-block"><span>Thở ra (giây)</span><input id="breath-out" type="number" class="field-input" min="1" max="20" value="8"></label>
+              </div>
+              <div class="rounded-3xl border border-zinc-200 p-5 dark:border-zinc-800 text-center mb-4">
+                <div class="text-sm text-zinc-500 dark:text-zinc-400 mb-3">Biểu đồ nhịp thở</div>
+                <div class="mx-auto mt-5 breath-circle expand" id="breath-circle"></div>
+                <div class="text-2xl font-bold mt-5 text-brand-600 dark:text-brand-300"><span id="breathing-stage">Hít vào</span> <span id="breath-timer">4</span>s</div>
+                <div class="h-1 rounded-full bg-zinc-200 dark:bg-zinc-800 mt-5"><div id="breath-progress" class="h-full w-0 bg-brand-500 rounded-full transition-all"></div></div>
+              </div>
+              <div class="flex gap-2 mb-4">
+                <button class="btn-primary flex-1" onclick="App.startBreathing()">Bắt đầu bài thở 5 phút</button>
+                <button class="btn-secondary flex-1" onclick="App.stopBreathing()">Dừng</button>
+              </div>
+              <div class="rounded-2xl bg-brand-50 p-4 text-brand-800 dark:bg-brand-500/10 dark:text-brand-100" id="breath-summary">Nhịp hiện tại: Hít 4 giây — Giữ 7 giây — Thở 8 giây.</div>
+            </section>
+          </div>
+        </section>
+
+        <section data-screen="review" class="screen hidden space-y-6">
+          <div class="grid gap-6 xl:grid-cols-[1fr_1fr]">
+            <section class="card p-5">
+              <div class="section-head"><div><h2>Review tuần / tháng</h2><p>Tự tổng hợp từ các lệnh trong nhật ký hoặc người dùng có thể chỉnh sửa và lưu.</p></div></div>
+              <div id="review-summary" class="grid gap-4 mb-5"></div>
+              <label class="field-block mb-4"><span>Bài học tuần</span><textarea id="weekly-review-note" class="field-input min-h-[110px]"></textarea></label>
+              <label class="field-block"><span>Bài học tháng</span><textarea id="monthly-review-note" class="field-input min-h-[120px]"></textarea></label>
+              <button class="btn-primary w-full mt-4" onclick="App.saveReview()">Lưu review</button>
+            </section>
+            <section class="card p-5">
+              <div class="section-head"><div><h2>Hậu kiểm (Post-mortem)</h2><p>Tự động trích xuất các lệnh lỗ lớn nhất để cải thiện tư duy đặt lệnh.</p></div></div>
+              <div id="postmortem-list"></div>
+            </section>
+          </div>
+        </section>
       </main>
     </div>
   </div>
 
   <!-- MODALS -->
-  <!-- Trade Modal -->
   <div id="trade-modal" class="modal hidden">
     <div class="modal-card max-w-5xl">
       <div class="modal-head"><h3 id="trade-modal-title">Tạo lệnh mới</h3><button class="icon-btn" onclick="App.closeTradeModal()"><i data-lucide="x"></i></button></div>
@@ -315,17 +405,16 @@
     </div>
   </div>
 
-  <!-- Watchlist Modal -->
   <div id="watchlist-modal" class="modal hidden">
     <div class="modal-card max-w-3xl">
       <div class="modal-head"><h3 id="watchlist-modal-title">Thêm watchlist</h3><button class="icon-btn" onclick="App.closeWatchlistModal()"><i data-lucide="x"></i></button></div>
       <div class="grid gap-4 mb-4">
-        <label class="field-block"><span>Mã</span><input id="watch-symbol" class="field-input" placeholder="FPT"></label>
+        <label class="field-block"><span>Mã</span><input id="watch-symbol" class="field-input"></label>
         <label class="field-block"><span>Nhóm</span><select id="watch-group" class="field-input"><option value="near">Gần điểm mua</option><option value="watch">Theo dõi</option><option value="long">Dài hạn</option></select></label>
         <label class="field-block"><span>Pattern</span><select id="watch-pattern-id" class="field-input"></select></label>
-        <label class="field-block"><span>Buy zone</span><input id="watch-buy-zone" class="field-input" placeholder="128 - 132"></label>
+        <label class="field-block"><span>Buy zone</span><input id="watch-buy-zone" class="field-input"></label>
         <label class="field-block"><span>Risk</span><select id="watch-risk" class="field-input"><option>Thấp</option><option>Trung bình</option><option>Cao</option></select></label>
-        <label class="field-block"><span>Status</span><input id="watch-status" class="field-input" placeholder="Gần điểm mua"></label>
+        <label class="field-block"><span>Status</span><input id="watch-status" class="field-input"></label>
         <label class="field-block"><span>Kế hoạch</span><textarea id="watch-plan" class="field-input min-h-[80px]"></textarea></label>
         <label class="field-block"><span>URL ảnh</span><input id="watch-image-url" class="field-input"></label>
         <label class="field-block"><span>Upload ảnh</span><input id="watch-image-file" type="file" accept="image/*" class="field-input"></label>
@@ -335,13 +424,12 @@
     </div>
   </div>
 
-  <!-- Pattern Modal -->
   <div id="pattern-modal" class="modal hidden">
     <div class="modal-card max-w-5xl">
       <div class="modal-head"><h3 id="pattern-modal-title">Tạo mẫu hình</h3><button class="icon-btn" onclick="App.closePatternModal()"><i data-lucide="x"></i></button></div>
       <div class="grid gap-4 mb-4">
-        <label class="field-block"><span>Tên mẫu</span><input id="pattern-name" class="field-input" placeholder="VCP"></label>
-        <label class="field-block"><span>Chiến lược</span><input id="pattern-strategy" class="field-input" placeholder="Mark Minervini"></label>
+        <label class="field-block"><span>Tên mẫu</span><input id="pattern-name" class="field-input"></label>
+        <label class="field-block"><span>Chiến lược</span><input id="pattern-strategy" class="field-input"></label>
         <label class="field-block"><span>Mô tả</span><textarea id="pattern-description" class="field-input min-h-[100px]"></textarea></label>
         <label class="field-block"><span>Điều kiện nền (mỗi dòng một điều)</span><textarea id="pattern-conditions" class="field-input min-h-[100px]"></textarea></label>
         <label class="field-block"><span>Điều kiện kích hoạt (mỗi dòng một điều)</span><textarea id="pattern-triggers" class="field-input min-h-[100px]"></textarea></label>
@@ -353,12 +441,11 @@
     </div>
   </div>
 
-  <!-- Reminder Modal -->
   <div id="reminder-modal" class="modal hidden">
     <div class="modal-card max-w-2xl">
       <div class="modal-head"><h3 id="reminder-modal-title">Chèn ảnh nhắc nhở</h3><button class="icon-btn" onclick="App.closeReminderModal()"><i data-lucide="x"></i></button></div>
       <div class="grid gap-4">
-        <label class="field-block"><span>Tiêu đề</span><input id="reminder-title" class="field-input" placeholder="Kiểm soát phản ứng"></label>
+        <label class="field-block"><span>Tiêu đề</span><input id="reminder-title" class="field-input"></label>
         <label class="field-block"><span>URL ảnh</span><input id="reminder-image-url" class="field-input"></label>
         <label class="field-block"><span>Upload ảnh</span><input id="reminder-image-file" type="file" accept="image/*" class="field-input"></label>
         <div class="image-preview-box"><img id="reminder-image-preview" alt="preview"></div>
@@ -367,10 +454,8 @@
     </div>
   </div>
 
-  <!-- Image Zoom Modal -->
   <div id="image-zoom-modal" class="modal hidden" onclick="App.closeImageZoom(event)"><div class="zoom-card"><img id="zoomed-image" alt="zoomed image" /></div></div>
 
-  <!-- FIREBASE SCRIPTS -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>

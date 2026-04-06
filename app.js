@@ -1167,18 +1167,36 @@ enterLogin() {
       </div>`).join('');
   },
 
-  renderMarket() {
+    renderMarket() {
     const m = this.data.market;
-    document.getElementById('market-dist-input').value = m.distDays;
-    document.getElementById('market-sentiment-input').value = m.sentiment;
-    document.getElementById('market-sectors-input').value = m.sectors;
-    document.getElementById('market-note-input').value = m.note;
-    document.getElementById('market-dist-view').textContent = m.distDays;
-    document.getElementById('market-state-view').textContent = this.marketStateLabel().title;
-    document.getElementById('market-sentiment-view').textContent = m.sentiment;
-    document.getElementById('market-sector-tags').innerHTML = this.leadingSectors().map(s => `<span class="table-chip gray">${s}</span>`).join('');
-    document.getElementById('market-guidance').textContent = `${this.marketStateLabel().title}: ${this.marketStateLabel().action} ${m.note || ''}`;
-    document.getElementById('market-action-text').textContent = this.marketStateLabel().action;
+    
+    // Safe element selection - chỉ set nếu element tồn tại
+    const els = {
+      distInput: document.getElementById('market-dist-input'),
+      sentimentInput: document.getElementById('market-sentiment-input'),
+      sectorsInput: document.getElementById('market-sectors-input'),
+      noteInput: document.getElementById('market-note-input'),
+      distView: document.getElementById('market-dist-view'),
+      stateView: document.getElementById('market-state-view'),
+      sentimentView: document.getElementById('market-sentiment-view'),
+      sectorTags: document.getElementById('market-sector-tags'),
+      guidance: document.getElementById('market-guidance'),
+      actionText: document.getElementById('market-action-text')
+    };
+
+    // Input values
+    if (els.distInput) els.distInput.value = m.distDays;
+    if (els.sentimentInput) els.sentimentInput.value = m.sentiment;
+    if (els.sectorsInput) els.sectorsInput.value = m.sectors;
+    if (els.noteInput) els.noteInput.value = m.note;
+    
+    // Display values
+    if (els.distView) els.distView.textContent = m.distDays;
+    if (els.stateView) els.stateView.textContent = this.marketStateLabel().title;
+    if (els.sentimentView) els.sentimentView.textContent = m.sentiment;
+    if (els.sectorTags) els.sectorTags.innerHTML = this.leadingSectors().map(s => `<span class="table-chip gray">${s}</span>`).join('');
+    if (els.guidance) els.guidance.textContent = `${this.marketStateLabel().title}: ${this.marketStateLabel().action} ${m.note || ''}`;
+    if (els.actionText) els.actionText.textContent = this.marketStateLabel().action;
   },
 
   saveMarket() {

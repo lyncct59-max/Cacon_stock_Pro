@@ -100,6 +100,8 @@ const App = {
     user: null,
     saveTimer: null,
     isSaving: false,
+    isAdmin: false,
+    userProfile: null,
     breathing: { timer: null },
     splash: { nodes: [], frame: null, ready: false },
     network: { particles: [], raf: null, canvas: null, ctx: null },
@@ -218,15 +220,37 @@ const App = {
   },
 
   lockApp(locked) {
-    document.querySelector('.app-shell').classList.toggle('app-locked', locked);
-    document.getElementById('auth-overlay').classList.toggle('hidden', !locked);
-    if (!locked) this.hideSplash();
+    document.querySelector('.app-shell')?.classList.toggle('app-locked', locked);
+    if (locked) {
+      document.getElementById('auth-overlay')?.classList.remove('hidden');
+      return;
+    }
+    this.setAuthOverlayView('closed');
+  },
+
+  setAuthOverlayView(view = 'intro') {
+    const overlay = document.getElementById('auth-overlay');
+    const intro = document.getElementById('prelogin-splash');
+    const authPanel = document.getElementById('auth-panel');
+    const showIntro = view === 'intro';
+    const showAuth = view === 'auth';
+
+    overlay?.classList.toggle('hidden', view === 'closed');
+    intro?.classList.toggle('hidden', !showIntro);
+    authPanel?.classList.toggle('hidden', !showAuth);
+    this.state.splashVisible = showIntro;
+
+    if (showIntro) {
+      this.startSplashScene();
+      return;
+    }
+
+    this.stopSplashScene();
   },
 
   showIntroScreen() {
-    this.state.splashVisible = true;
-    document.getElementById('splash-screen')?.classList.remove('hidden');
-    document.getElementById('network-canvas')?.classList.remove('hidden');
+    this.lockApp(true);
+    this.setAuthOverlayView('intro');
     lucide.createIcons();
   },
 
@@ -329,127 +353,6 @@ const App = {
   },
 
   setAuthBusy(busy, label = 'Tiếp tục') {
-    const submitBtn = document.getElementById('auth-submit-btn') || document.querySelector('#auth-overlay .btn-primary');
-    const resetBtn = document.getElementById('auth-reset-btn') || document.querySelector('#auth-overlay .btn-secondary');
-
-    if (submitBtn) {
-      submitBtn.disabled = busy;
-      submitBtn.style.opacity = busy ? '0.7' : '1';
-      submitBtn.textContent = busy ? label : 'Tiếp tục';
-    }
-
-    if (resetBtn) {
-      resetBtn.disabled = busy;
-      resetBtn.style.opacity = busy ? '0.7' : '1';
-    }
-  },
-
-  authErrorMessage(error) {
-    const code = error?.code || '';
-    const map = {
-      'auth/invalid-email': 'Email chưa đúng định dạng.',
-      'auth/missing-password': 'Vui lòng nhập mật khẩu.',
-      'auth/user-not-found': 'Không tìm thấy tài khoản này.',
-      'auth/wrong-password': 'Mật khẩu chưa chính xác.',
-      'auth/invalid-credential': 'Email hoặc mật khẩu chưa đúng.',
-      'auth/email-already-in-use': 'Email này đã được sử dụng.',
-      'auth/weak-password': 'Mật khẩu cần ít nhất 6 ký tự.',
-      'auth/network-request-failed': 'Kết nối mạng đang không ổn định. Vui lòng thử lại.'
-    };
-    return map[code] || error?.message || 'Không thể xác thực tài khoản.';
-  },
-
-  async processAuthenticatedUser(user) {
-    try {
-      this.state.user = user || null;
-      this.hideSplash();
-      this.lockApp(false);
-      this.setUserInfo(user);
-      this.setSyncStatus('Đang tải dữ liệu...');
-
-      let cloudData = null;
-      try {
-        await FirebaseService.ensureProfile(user);
-        cloudData = await FirebaseService.loadJournal(user.uid);
-        if (!cloudData) {
-          cloudData = this.loadLocalCache() || this.demo();
-          await FirebaseService.saveJournal(user.uid, cloudData);
-        }
-        this.setSyncStatus('Dữ liệu đã sẵn sàng');
-        this.showAuthMessage('Đăng nhập thành công.');
-      } catch (cloudError) {
-        console.error(cloudError);
-        this.showAuthMessage('Đăng nhập thành công nhưng tải dữ liệu chậm. Web đang dùng dữ liệu cục bộ.', true);
-        this.setSyncStatus('Dùng dữ liệu cục bộ');
-      }
-
-      this.data = cloudData || this.loadLocalCache() || this.demo();
-      this.recomputeTrades();
-      this.saveLocalCache();
-      this.renderAll();
-      return true;
-    } catch (error) {
-      console.error(error);
-      this.lockApp(false);
-      this.hideSplash();
-      this.data = this.loadLocalCache() || this.demo();
-      this.recomputeTrades();
-      this.renderAll();
-      this.setSyncStatus('Đã đăng nhập');
-      return false;
-    }
-  },
-
-  async completeLoginFallback() {
-    const started = Date.now();
-
-    while (Date.now() - started < 3500) {
-      if (this.state.user) return true;
-
-      const currentUser = window.auth?.currentUser || null;
-      if (currentUser) {
-        await this.processAuthenticatedUser(currentUser);
-        return true;
-      }
-
-      await new Promise(resolve => setTimeout(resolve, 120));
-    }
-
-    this.lockApp(false);
-    this.hideSplash();
-    this.data = this.loadLocalCache() || this.demo();
-    this.recomputeTrades();
-    this.renderAll();
-    this.showAuthMessage('Đăng nhập thành công nhưng kết nối dữ liệu phản hồi chậm. Web đã mở bằng dữ liệu cục bộ.', true);
-    this.setSyncStatus('Mở bằng dữ liệu cục bộ');
-    return false;
-  },
-
-enterLogin() {
-  document.getElementById('splash-screen')?.classList.add('hidden');
-  document.getElementById('network-canvas')?.classList.add('hidden');
-  document.getElementById('auth-overlay')?.classList.remove('hidden');
-  document.querySelector('.app-shell')?.classList.add('app-locked');
-  setTimeout(() => document.getElementById('auth-email')?.focus(), 80);
-},
-
-  hideSplash() {
-    this.state.splashVisible = false;
-    document.getElementById('splash-screen')?.classList.add('hidden');
-    document.getElementById('network-canvas')?.classList.add('hidden');
-  },
-
-  togglePassword() {
-    const input = document.getElementById('auth-password');
-    const icon = document.querySelector('#auth-password-toggle i');
-    if (!input) return;
-    const show = input.type === 'password';
-    input.type = show ? 'text' : 'password';
-    if (icon) icon.setAttribute('data-lucide', show ? 'eye-off' : 'eye');
-    lucide.createIcons();
-  },
-
-  setAuthBusy(busy, label = 'Tiếp tục') {
     this.state.authBusy = busy;
     const submit = document.getElementById('auth-submit-btn');
     const reset = document.getElementById('auth-reset-btn');
@@ -462,11 +365,29 @@ enterLogin() {
     lucide.createIcons();
   },
 
+  enterLogin() {
+    this.lockApp(true);
+    this.setAuthOverlayView('auth');
+  },
+
+  hideSplash() {
+    this.setAuthOverlayView('auth');
+  },
+
+  togglePassword() {
+    const input = document.getElementById('auth-password');
+    const icon = document.querySelector('#auth-password-toggle i');
+    if (!input) return;
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    if (icon) icon.setAttribute('data-lucide', show ? 'eye-off' : 'eye');
+    lucide.createIcons();
+  },
+
 
   async processAuthenticatedUser(user, source = 'listener') {
     try {
       this.state.user = user || null;
-      this.hideSplash();
       this.lockApp(false);
       this.setUserInfo(user);
       this.setSyncStatus('Đang tải dữ liệu...');
@@ -494,7 +415,6 @@ enterLogin() {
     } catch (error) {
       console.error(error);
       this.lockApp(false);
-      this.hideSplash();
       this.data = this.loadLocalCache() || this.demo();
       this.recomputeTrades();
       this.renderAll();
@@ -517,7 +437,6 @@ enterLogin() {
     }
 
     this.lockApp(false);
-    this.hideSplash();
     this.data = this.loadLocalCache() || this.demo();
     this.recomputeTrades();
     this.renderAll();

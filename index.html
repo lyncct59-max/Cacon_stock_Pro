@@ -69,6 +69,7 @@
           </div>
           <div>
             <div class="font-semibold text-2xl leading-7">CACON Trading Journal</div>
+            <div class="auth-form-title text-base font-semibold mt-1">Đăng nhập</div>
             <div class="text-sm text-zinc-500 dark:text-zinc-400">Đăng nhập để mở nhật ký đầu tư cá nhân</div>
           </div>
         </div>
@@ -79,12 +80,12 @@
         </div>
 
         <div class="grid gap-4">
-          <label class="field-block" id="auth-name-wrap"><span>Họ tên</span><input id="auth-name" class="field-input" placeholder="Nguyễn Văn A"></label>
+          <label class="field-block" id="auth-name-wrap" style="display:none"><span>Họ tên</span><input id="auth-name" class="field-input" placeholder="Nguyễn Văn A"></label>
           <label class="field-block"><span>Email</span><input id="auth-email" type="email" class="field-input" placeholder="ban@email.com"></label>
           <label class="field-block"><span>Mật khẩu</span><input id="auth-password" type="password" class="field-input" placeholder="Tối thiểu 6 ký tự"></label>
           <div class="grid gap-3 md:grid-cols-2">
-            <button class="btn-primary w-full" onclick="AuthUI.submit()">Tiếp tục</button>
-            <button class="btn-secondary w-full" onclick="AuthUI.resetPassword()">Quên mật khẩu</button>
+            <button id="auth-submit-btn" class="btn-primary w-full" onclick="AuthUI.submit()">Tiếp tục</button>
+            <button id="auth-reset-btn" class="btn-secondary w-full" onclick="AuthUI.resetPassword()">Quên mật khẩu</button>
           </div>
           <button class="btn-secondary w-full" onclick="App.showIntroScreen()"><i data-lucide="arrow-left"></i>Quay lại giới thiệu</button>
         </div>

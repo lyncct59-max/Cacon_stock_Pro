@@ -1,15 +1,34 @@
 const STORAGE_KEY = 'cacon-trading-firebase-cache';
+const ADMIN_EMAILS = ['minhtien45x3@gmail.com', 'lynctt59@gmail.com', 'lynct59@gmail.com'];
 
 const FirebaseService = {
+  persistenceReady: false,
+
   get ready() {
-    return !!(window.firebase && window.auth && window.db && window.storage);
+    return !!(window.firebase && window.auth && window.db);
+  },
+
+  get canUpload() {
+    return !!window.storage;
+  },
+
+  async ensurePersistence() {
+    if (!this.ready || this.persistenceReady) return;
+    try {
+      await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+      this.persistenceReady = true;
+    } catch (error) {
+      console.warn('Không bật được LOCAL persistence.', error);
+    }
   },
 
   async login(email, password) {
+    await this.ensurePersistence();
     return auth.signInWithEmailAndPassword(email, password);
   },
 
   async register(name, email, password) {
+    await this.ensurePersistence();
     const cred = await auth.createUserWithEmailAndPassword(email, password);
     if (name) await cred.user.updateProfile({ displayName: name });
     await db.collection('users').doc(cred.user.uid).set({
@@ -40,6 +59,12 @@ const FirebaseService = {
     }, { merge: true });
   },
 
+  async getUserProfile(uid) {
+    if (!uid) return null;
+    const snap = await db.collection('users').doc(uid).get();
+    return snap.exists ? snap.data() : null;
+  },
+
   async loadJournal(uid) {
     const snap = await db.collection('trading_journals').doc(uid).get();
     return snap.exists ? snap.data()?.payload : null;
@@ -54,6 +79,8 @@ const FirebaseService = {
   },
 
   async uploadFile(uid, file, folder) {
+    if (!uid) throw new Error('Bạn cần đăng nhập trước khi tải ảnh lên.');
+    if (!this.canUpload) throw new Error('Storage chưa sẵn sàng. Hiện chỉ có thể dùng ảnh bằng URL.');
     const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
     const ref = storage.ref(`users/${uid}/${folder}/${safeName}`);
     await ref.put(file);
@@ -73,9 +100,12 @@ const App = {
     user: null,
     saveTimer: null,
     isSaving: false,
+    isAdmin: false,
+    userProfile: null,
     breathing: { timer: null },
-    splash: { hidden: false },
-    network: { particles: [], raf: null }
+    splash: { nodes: [], frame: null, ready: false },
+    network: { particles: [], raf: null, canvas: null, ctx: null },
+    authBusy: false
   },
 
   demo() {
@@ -103,9 +133,9 @@ const App = {
         }
       ],
       watchlists: [
-        { id: 'w1', symbol: 'FPT', group: 'near', patternId: 'p-vcp', buyZone: '128 - 132', risk: 'Thấp', status: 'Gần điểm mua', plan: 'Canh breakout nền chặt với volume xác nhận.', sector: 'Công nghệ' },
-        { id: 'w2', symbol: 'DGC', group: 'long', patternId: 'p-tightflag', buyZone: '108 - 112', risk: 'Trung bình', status: 'Dài hạn', plan: 'Theo dõi nền tuần và gia tăng ở nhịp co hẹp.', sector: 'Hóa chất' },
-        { id: 'w3', symbol: 'SSI', group: 'watch', patternId: 'p-vcp', buyZone: '39 - 40', risk: 'Trung bình', status: 'Theo dõi', plan: 'Chờ thêm xác nhận từ thị trường chung.', sector: 'Chứng khoán' }
+        { id: 'w1', symbol: 'FPT', group: 'near', patternId: 'p-vcp', buyZone: '128 - 132', risk: 'Thấp', status: 'Gần điểm mua', plan: 'Canh breakout nền chặt với volume xác nhận.', sector: 'Công nghệ', image: '' },
+        { id: 'w2', symbol: 'DGC', group: 'long', patternId: 'p-tightflag', buyZone: '108 - 112', risk: 'Trung bình', status: 'Dài hạn', plan: 'Theo dõi nền tuần và gia tăng ở nhịp co hẹp.', sector: 'Hóa chất', image: '' },
+        { id: 'w3', symbol: 'SSI', group: 'watch', patternId: 'p-vcp', buyZone: '39 - 40', risk: 'Trung bình', status: 'Theo dõi', plan: 'Chờ thêm xác nhận từ thị trường chung.', sector: 'Chứng khoán', image: '' }
       ],
       trades: [
         {
@@ -127,6 +157,11 @@ const App = {
           note: 'Đang giữ, theo dõi phản ứng quanh MA10.', checklist: ['Nền chặt', 'Giữ stop rõ ràng'], theoryImage: '', actualImage: ''
         }
       ],
+      dashboardReminders: [
+        { id: 'r1', title: 'Kiểm soát phản ứng', image: 'reminder_poster_1.png' },
+        { id: 'r2', title: 'Cắt lỗ nhanh', image: 'reminder_poster_2.png' },
+        { id: 'r3', title: 'Ưu tiên setup', image: 'reminder_poster_3.png' }
+      ],
       market: { distDays: 2, sentiment: 'Tích cực', sectors: 'Chứng khoán, Công nghệ', note: 'Có thể giải ngân thăm dò với setup mạnh.' },
       mindset: { energy: 7, calm: 8, fomo: 4, confidence: 6, preflight: 'Kiểm tra market pulse, chỉ chọn A/B setup, không mua đuổi quá 2%.', breathIn: 4, breathHold: 7, breathOut: 8 },
       review: { weekly: 'Tuần này kiên nhẫn chờ setup tốt hơn.', monthly: 'Tháng này cần giảm số lệnh vào sớm.' }
@@ -145,35 +180,21 @@ const App = {
     this.lockApp(true);
 
     if (FirebaseService.ready) {
+      FirebaseService.ensurePersistence().catch(() => null);
       auth.onAuthStateChanged(async (user) => {
-        try {
-          this.state.user = user || null;
-          if (!user) {
-            this.lockApp(true);
-            this.showSplash();
-            this.setUserInfo(null);
-            this.setSyncStatus('Chưa đăng nhập');
-            return;
-          }
-          this.hideSplash();
-          this.lockApp(false);
-          this.setUserInfo(user);
-          this.setSyncStatus('Đang tải Firebase...');
-          await FirebaseService.ensureProfile(user);
-          const cloudData = await FirebaseService.loadJournal(user.uid);
-          this.data = cloudData || this.demo();
-          this.recomputeTrades();
-          this.saveLocalCache();
-          this.renderAll();
-          this.setSyncStatus('Đã đồng bộ Firebase');
-        } catch (error) {
-          console.error(error);
-          this.showAuthMessage(error.message || 'Không tải được dữ liệu Firebase.', true);
-          this.setSyncStatus('Lỗi đồng bộ');
+        this.setAuthBusy(false);
+        if (!user) {
+          this.state.user = null;
+          this.lockApp(true);
+          this.showIntroScreen();
+          this.setUserInfo(null);
+          this.setSyncStatus('Chưa đăng nhập');
+          return;
         }
+        await this.processAuthenticatedUser(user);
       });
     } else {
-      this.showAuthMessage('Firebase chưa được khởi tạo đúng trong firebase.js.', true);
+      this.showAuthMessage('Kết nối dữ liệu chưa sẵn sàng. Kiểm tra lại firebase.js.', true);
     }
 
     lucide.createIcons();
@@ -186,30 +207,271 @@ const App = {
     ['filter-start','filter-end','filter-status','filter-result'].forEach(id => document.getElementById(id).addEventListener('input', () => this.renderJournalTable()));
     ['energy-input','calm-input','fomo-input','confidence-input'].forEach(id => document.getElementById(id).addEventListener('input', () => this.updateMindsetValues()));
     ['breath-in','breath-hold','breath-out'].forEach(id => document.getElementById(id).addEventListener('input', () => this.updateBreathSummary()));
-    ['trade-theory-file','trade-actual-file','pattern-image-file'].forEach(id => document.getElementById(id).addEventListener('change', (e) => this.handleFilePreview(e)));
+    ['trade-theory-file','trade-actual-file','pattern-image-file','watch-image-file','reminder-image-file'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('change', (e) => this.handleFilePreview(e));
+    });
+    document.getElementById('auth-password-toggle')?.addEventListener('click', () => this.togglePassword());
+    ['auth-email','auth-password','auth-name'].forEach(id => {
+      document.getElementById(id)?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') AuthUI.submit();
+      });
+    });
   },
 
   lockApp(locked) {
-    document.querySelector('.app-shell').classList.toggle('app-locked', locked);
-    document.getElementById('auth-overlay').classList.toggle('hidden', !locked);
+    document.querySelector('.app-shell')?.classList.toggle('app-locked', locked);
+    if (locked) {
+      document.getElementById('auth-overlay')?.classList.remove('hidden');
+      return;
+    }
+    this.setAuthOverlayView('closed');
   },
 
-  showSplash() {
-    this.state.splash.hidden = false;
-    document.getElementById('splash-screen')?.classList.remove('hidden');
-    document.getElementById('network-canvas')?.classList.remove('hidden');
+  setAuthOverlayView(view = 'intro') {
+    const overlay = document.getElementById('auth-overlay');
+    const intro = document.getElementById('prelogin-splash');
+    const authPanel = document.getElementById('auth-panel');
+    const showIntro = view === 'intro';
+    const showAuth = view === 'auth';
+
+    overlay?.classList.toggle('hidden', view === 'closed');
+    intro?.classList.toggle('hidden', !showIntro);
+    authPanel?.classList.toggle('hidden', !showAuth);
+    this.state.splashVisible = showIntro;
+
+    if (showIntro) {
+      this.startSplashScene();
+      return;
+    }
+
+    this.stopSplashScene();
+  },
+
+  showIntroScreen() {
+    this.lockApp(true);
+    this.setAuthOverlayView('intro');
     lucide.createIcons();
   },
 
-  hideSplash() {
-    this.state.splash.hidden = true;
-    document.getElementById('splash-screen')?.classList.add('hidden');
-    document.getElementById('network-canvas')?.classList.add('hidden');
+  showLoginPanel() {
+    this.enterLogin();
+    lucide.createIcons();
+    setTimeout(() => document.getElementById('auth-email')?.focus(), 60);
+  },
+
+  setupSplashScene() {
+    const stage = document.getElementById('splash-network-stage');
+    const particles = document.getElementById('splash-particles');
+    if (!stage || !particles || this.state.splash.ready) return;
+    const palette = ['#34d399', '#60a5fa', '#f472b6', '#fbbf24', '#a78bfa', '#22d3ee', '#fb7185'];
+    this.state.splash.nodes = Array.from({ length: 14 }, (_, index) => {
+      const el = document.createElement('span');
+      el.className = 'splash-dot';
+      const size = 16 + Math.random() * 34;
+      const node = {
+        el,
+        size,
+        x: 0,
+        y: 0,
+        vx: (Math.random() * 0.7 + 0.25) * (Math.random() > 0.5 ? 1 : -1),
+        vy: (Math.random() * 0.7 + 0.25) * (Math.random() > 0.5 ? 1 : -1),
+        color: palette[index % palette.length]
+      };
+      el.style.width = `${size}px`;
+      el.style.height = `${size}px`;
+      el.style.background = `radial-gradient(circle at 30% 30%, rgba(255,255,255,.95), ${node.color})`;
+      particles.appendChild(el);
+      return node;
+    });
+    this.state.splash.ready = true;
+    const placeNodes = () => {
+      const rect = stage.getBoundingClientRect();
+      this.state.splash.nodes.forEach(node => {
+        node.x = Math.random() * Math.max(40, rect.width - node.size - 20);
+        node.y = Math.random() * Math.max(40, rect.height - node.size - 20);
+      });
+    };
+    placeNodes();
+    window.addEventListener('resize', placeNodes);
+  },
+
+  startSplashScene() {
+    if (!this.state.splash.ready) this.setupSplashScene();
+    if (this.state.splash.frame) return;
+    const stage = document.getElementById('splash-network-stage');
+    const lines = document.getElementById('splash-lines');
+    if (!stage || !lines) return;
+    const animate = () => {
+      const width = stage.clientWidth || 1;
+      const height = stage.clientHeight || 1;
+      let markup = '';
+      this.state.splash.nodes.forEach(node => {
+        node.x += node.vx;
+        node.y += node.vy;
+        if (node.x <= 0 || node.x >= width - node.size) node.vx *= -1;
+        if (node.y <= 0 || node.y >= height - node.size) node.vy *= -1;
+        node.x = Math.max(0, Math.min(width - node.size, node.x));
+        node.y = Math.max(0, Math.min(height - node.size, node.y));
+        node.el.style.transform = `translate(${node.x}px, ${node.y}px)`;
+      });
+      for (let i = 0; i < this.state.splash.nodes.length; i += 1) {
+        for (let j = i + 1; j < this.state.splash.nodes.length; j += 1) {
+          const a = this.state.splash.nodes[i];
+          const b = this.state.splash.nodes[j];
+          const ax = a.x + a.size / 2;
+          const ay = a.y + a.size / 2;
+          const bx = b.x + b.size / 2;
+          const by = b.y + b.size / 2;
+          const dx = ax - bx;
+          const dy = ay - by;
+          const dist = Math.hypot(dx, dy);
+          if (dist < 210) {
+            const opacity = Math.max(0.08, 1 - dist / 210) * 0.45;
+            markup += `<line x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}" stroke="rgba(226,232,240,${opacity.toFixed(3)})" stroke-width="1.25" />`;
+          }
+        }
+      }
+      lines.setAttribute('viewBox', `0 0 ${width} ${height}`);
+      lines.innerHTML = markup;
+      this.state.splash.frame = requestAnimationFrame(animate);
+    };
+    this.state.splash.frame = requestAnimationFrame(animate);
+  },
+
+  stopSplashScene() {
+    if (!this.state.splash.frame) return;
+    cancelAnimationFrame(this.state.splash.frame);
+    this.state.splash.frame = null;
+  },
+
+  showAuthMessage(message, isError = false) {
+    const el = document.getElementById('auth-message');
+    if (!el) return;
+    el.textContent = message;
+    el.classList.toggle('error', isError);
+  },
+
+  setAuthBusy(busy, label = 'Tiếp tục') {
+    this.state.authBusy = busy;
+    const submit = document.getElementById('auth-submit-btn');
+    const reset = document.getElementById('auth-reset-btn');
+    if (submit) {
+      submit.disabled = busy;
+      submit.classList.toggle('opacity-70', busy);
+      submit.innerHTML = busy ? `<i data-lucide="loader-circle" class="spin"></i>${label}` : 'Tiếp tục';
+    }
+    if (reset) reset.disabled = busy;
+    lucide.createIcons();
   },
 
   enterLogin() {
-    this.hideSplash();
-    setTimeout(() => document.getElementById('auth-email')?.focus(), 80);
+    this.lockApp(true);
+    this.setAuthOverlayView('auth');
+  },
+
+  hideSplash() {
+    this.setAuthOverlayView('auth');
+  },
+
+  togglePassword() {
+    const input = document.getElementById('auth-password');
+    const icon = document.querySelector('#auth-password-toggle i');
+    if (!input) return;
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    if (icon) icon.setAttribute('data-lucide', show ? 'eye-off' : 'eye');
+    lucide.createIcons();
+  },
+
+
+  async processAuthenticatedUser(user, source = 'listener') {
+    try {
+      this.state.user = user || null;
+      this.lockApp(false);
+      this.setUserInfo(user);
+      this.setSyncStatus('Đang tải dữ liệu...');
+
+      let cloudData = null;
+      try {
+        await FirebaseService.ensureProfile(user);
+        this.state.userProfile = await FirebaseService.getUserProfile(user.uid);
+        this.state.isAdmin = this.isAdminUser(user, this.state.userProfile);
+        cloudData = await FirebaseService.loadJournal(user.uid);
+        this.setSyncStatus('Đã đồng bộ dữ liệu');
+        this.showAuthMessage('Đăng nhập thành công. Dữ liệu đã sẵn sàng.');
+      } catch (cloudError) {
+        this.state.isAdmin = this.isAdminUser(user, this.state.userProfile);
+        console.error(cloudError);
+        this.showAuthMessage(this.dataErrorMessage(cloudError), true);
+        this.setSyncStatus('Đăng nhập thành công · dùng dữ liệu cục bộ');
+      }
+
+      this.data = cloudData || this.loadLocalCache() || this.demo();
+      this.recomputeTrades();
+      this.saveLocalCache();
+      this.renderAll();
+      return true;
+    } catch (error) {
+      console.error(error);
+      this.lockApp(false);
+      this.data = this.loadLocalCache() || this.demo();
+      this.recomputeTrades();
+      this.renderAll();
+      this.showAuthMessage(this.authErrorMessage(error), true);
+      this.setSyncStatus('Đăng nhập thành công · kiểm tra kết nối dữ liệu');
+      return false;
+    }
+  },
+
+  async completeLoginFallback() {
+    const started = Date.now();
+    while (Date.now() - started < 3500) {
+      if (this.state.user) return true;
+      const currentUser = window.auth?.currentUser || null;
+      if (currentUser) {
+        await this.processAuthenticatedUser(currentUser, 'fallback');
+        return true;
+      }
+      await new Promise(resolve => setTimeout(resolve, 120));
+    }
+
+    this.lockApp(false);
+    this.data = this.loadLocalCache() || this.demo();
+    this.recomputeTrades();
+    this.renderAll();
+    this.showAuthMessage('Đăng nhập có thể đã thành công nhưng kết nối dữ liệu phản hồi chậm. Web đã mở bằng dữ liệu cục bộ.', true);
+    this.setSyncStatus('Mở bằng dữ liệu cục bộ');
+    return false;
+  },
+
+  authErrorMessage(error) {
+    const code = error?.code || '';
+    const map = {
+      'auth/invalid-email': 'Email chưa đúng định dạng.',
+      'auth/missing-password': 'Vui lòng nhập mật khẩu.',
+      'auth/user-not-found': 'Không tìm thấy tài khoản này.',
+      'auth/wrong-password': 'Mật khẩu chưa chính xác.',
+      'auth/invalid-credential': 'Email hoặc mật khẩu chưa đúng.',
+      'auth/email-already-in-use': 'Email này đã được sử dụng.',
+      'auth/weak-password': 'Mật khẩu cần ít nhất 6 ký tự.',
+      'auth/network-request-failed': 'Kết nối mạng đang không ổn định. Vui lòng thử lại.',
+      'auth/too-many-requests': 'Bạn thao tác quá nhanh. Vui lòng thử lại sau ít phút.',
+      'auth/popup-closed-by-user': 'Bạn đã đóng cửa sổ đăng nhập quá sớm.'
+    };
+    return map[code] || error?.message || 'Không thể xác thực tài khoản.';
+  },
+
+  dataErrorMessage(error) {
+    const code = error?.code || '';
+    const message = error?.message || '';
+    if (code === 'permission-denied' || message.includes('Missing or insufficient permissions')) {
+      return 'Đăng nhập thành công nhưng Firestore đang chặn quyền đọc/ghi. Web đã mở bằng dữ liệu cục bộ để bạn tiếp tục dùng.';
+    }
+    if (code === 'unavailable') {
+      return 'Đăng nhập thành công nhưng kết nối dữ liệu tạm thời không ổn định. Web đang dùng dữ liệu cục bộ.';
+    }
+    return 'Đăng nhập thành công nhưng chưa tải được dữ liệu đám mây. Web đang dùng dữ liệu cục bộ.';
   },
 
   initNetworkCanvas() {
@@ -217,41 +479,57 @@ const App = {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     const dpr = Math.max(1, window.devicePixelRatio || 1);
-    const colors = ['#ef4444', '#3b82f6', '#10b981', '#eab308'];
+    const colors = ['#22c55e', '#38bdf8', '#a78bfa', '#f59e0b', '#14b8a6'];
     const state = this.state.network;
+    state.canvas = canvas;
+    state.ctx = ctx;
+
     const resize = () => {
       canvas.width = window.innerWidth * dpr;
       canvas.height = window.innerHeight * dpr;
       canvas.style.width = window.innerWidth + 'px';
       canvas.style.height = window.innerHeight + 'px';
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      const count = Math.max(40, Math.min(90, Math.round(window.innerWidth / 28)));
+      const count = Math.max(28, Math.min(52, Math.round(window.innerWidth / 34)));
       state.particles = Array.from({ length: count }, (_, i) => ({
         x: Math.random() * window.innerWidth,
         y: Math.random() * window.innerHeight,
         vx: (Math.random() - 0.5) * 0.35,
         vy: (Math.random() - 0.5) * 0.35,
-        r: 1.4 + Math.random() * 2.1,
+        r: 3 + Math.random() * 6,
         color: colors[i % colors.length]
       }));
     };
+
     const draw = () => {
       ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
-      for (const p of state.particles) {
-        p.x += p.vx; p.y += p.vy;
-        if (p.x < -20) p.x = window.innerWidth + 20;
-        if (p.x > window.innerWidth + 20) p.x = -20;
-        if (p.y < -20) p.y = window.innerHeight + 20;
-        if (p.y > window.innerHeight + 20) p.y = -20;
+      const particles = state.particles;
+
+      const gradient = ctx.createRadialGradient(window.innerWidth * 0.5, window.innerHeight * 0.45, 0, window.innerWidth * 0.5, window.innerHeight * 0.45, Math.max(window.innerWidth, window.innerHeight) * 0.7);
+      gradient.addColorStop(0, 'rgba(15,23,42,0.12)');
+      gradient.addColorStop(1, 'rgba(15,23,42,0)');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+
+      for (const p of particles) {
+        p.x += p.vx;
+        p.y += p.vy;
+        if (p.x < -30) p.x = window.innerWidth + 30;
+        if (p.x > window.innerWidth + 30) p.x = -30;
+        if (p.y < -30) p.y = window.innerHeight + 30;
+        if (p.y > window.innerHeight + 30) p.y = -30;
       }
-      for (let i = 0; i < state.particles.length; i += 1) {
-        for (let j = i + 1; j < state.particles.length; j += 1) {
-          const a = state.particles[i], b = state.particles[j];
-          const dx = a.x - b.x, dy = a.y - b.y;
+
+      for (let i = 0; i < particles.length; i += 1) {
+        for (let j = i + 1; j < particles.length; j += 1) {
+          const a = particles[i];
+          const b = particles[j];
+          const dx = a.x - b.x;
+          const dy = a.y - b.y;
           const dist = Math.hypot(dx, dy);
-          if (dist < 120) {
+          if (dist < 160) {
             ctx.beginPath();
-            ctx.strokeStyle = `rgba(203,213,225,${(1 - dist / 120) * 0.24})`;
+            ctx.strokeStyle = `rgba(148,163,184,${(1 - dist / 160) * 0.25})`;
             ctx.lineWidth = 1;
             ctx.moveTo(a.x, a.y);
             ctx.lineTo(b.x, b.y);
@@ -259,19 +537,28 @@ const App = {
           }
         }
       }
-      for (const p of state.particles) {
+
+      for (const p of particles) {
+        const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r * 5.5);
+        glow.addColorStop(0, p.color + 'dd');
+        glow.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r * 5.5, 0, Math.PI * 2);
+        ctx.fill();
+
         ctx.fillStyle = p.color;
-        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fill();
       }
+
       state.raf = requestAnimationFrame(draw);
     };
-    resize(); draw(); window.addEventListener('resize', resize);
-  },
 
-  showAuthMessage(message, isError = false) {
-    const el = document.getElementById('auth-message');
-    el.textContent = message;
-    el.classList.toggle('error', isError);
+    resize();
+    draw();
+    window.addEventListener('resize', resize);
   },
 
   setUserInfo(user) {
@@ -283,6 +570,36 @@ const App = {
     document.getElementById('sync-status').textContent = text;
   },
 
+  isAdminUser(user, profile = null) {
+    const email = (user?.email || profile?.email || '').trim().toLowerCase();
+    return !!(email && (ADMIN_EMAILS.includes(email) || String(profile?.role || '').toLowerCase() === 'admin'));
+  },
+
+  getDefaultReminders() {
+  return [
+    { 
+      id: 'r1', 
+      title: 'Kiểm soát phản ứng', 
+      image: 'https://via.placeholder.com/400x300?text=Kiểm+soát+phản+ứng' 
+    },
+    { 
+      id: 'r2', 
+      title: 'Cắt lỗ nhanh', 
+      image: 'https://via.placeholder.com/400x300?text=Cắt+lỗ+nhanh' 
+    },
+    { 
+      id: 'r3', 
+      title: 'Ưu tiên setup', 
+      image: 'https://via.placeholder.com/400x300?text=Ưu+tiên+setup' 
+    }
+  ]
+},
+ ensureDashboardReminders() {
+  if (!this.data) this.data = this.demo();
+  if (!Array.isArray(this.data.dashboardReminders) || this.data.dashboardReminders.length === 0) {
+    this.data.dashboardReminders = this.getDefaultReminders();
+  }
+},
   loadLocalCache() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -338,6 +655,15 @@ const App = {
   getTradeById(id) { return this.data.trades.find(t => t.id === id) || this.data.trades[0]; },
   getPatternById(id) { return this.data.patterns.find(p => p.id === id) || null; },
   patternName(id) { return this.getPatternById(id)?.name || 'Chưa chọn'; },
+
+  getTradeImageBySymbol(symbol) {
+    const hit = this.data.trades.find(t => t.symbol === symbol && (t.actualImage || t.theoryImage));
+    return hit?.actualImage || hit?.theoryImage || '';
+  },
+
+  getWatchImage(watch) {
+    return this.resolveImage(watch?.image || this.getPatternById(watch?.patternId)?.image || this.getTradeImageBySymbol(watch?.symbol) || '');
+  },
   fmtMoney(v) { return `${Math.round(v || 0).toLocaleString('vi-VN')}đ`; },
   fmtNum(v, d = 1) { return v == null || Number.isNaN(v) ? '—' : Number(v).toFixed(d).replace(/\.0$/, ''); },
 
@@ -388,6 +714,7 @@ const App = {
     this.renderMarket();
     this.renderMindset();
     this.renderReview();
+    this.renderDashboardReminders();
     this.updateMission();
     lucide.createIcons();
   },
@@ -490,24 +817,147 @@ const App = {
     document.getElementById('top-mistake').textContent = this.topMistake();
     document.getElementById('next-step').textContent = this.marketStateLabel().action;
     document.getElementById('longterm-summary').innerHTML = groups.long.map(w => `
-      <div class="watch-card">
-        <div class="topline"><div><div class="title">${w.symbol}</div><div class="muted text-sm">${this.patternName(w.patternId)} · ${w.sector || ''}</div></div><span class="status-pill">${w.status}</span></div>
-        <div class="grid grid-cols-2 gap-3 text-sm mb-3"><div><div class="muted">Buy zone</div><strong>${w.buyZone}</strong></div><div><div class="muted">Risk</div><strong>${w.risk}</strong></div></div>
-        <div class="text-sm text-zinc-600 dark:text-zinc-300">${w.plan || ''}</div>
+      <div class="watch-card terminal compact">
+        <div class="watch-head">
+          <div><div class="title">${w.symbol}</div><div class="muted text-sm">${this.patternName(w.patternId)} · ${w.sector || ''}</div></div>
+          <span class="status-pill">${w.status}</span>
+        </div>
+        <div class="watch-body compact">
+          <div class="watch-copy">
+            <div class="watch-grid-meta">
+              <div><div class="muted">Buy zone</div><strong>${w.buyZone}</strong></div>
+              <div><div class="muted">Risk</div><strong>${w.risk}</strong></div>
+            </div>
+            <div class="watch-plan">${w.plan || ''}</div>
+          </div>
+          <div class="watch-chart-box" onclick="App.zoomImage('${this.getWatchImage(w)}')">${this.getWatchImage(w) ? `<img src="${this.getWatchImage(w)}" alt="${w.symbol}">` : '<div class="muted text-sm">Chưa có biểu đồ</div>'}</div>
+        </div>
       </div>`).join('') || '<div class="text-sm muted">Chưa có dữ liệu.</div>';
   },
 
   renderWatchCards(targetId, items, compact = false) {
-    document.getElementById(targetId).innerHTML = items.map(w => `
-      <div class="watch-card">
-        <div class="topline"><div><div class="title">${w.symbol}</div><div class="muted text-sm">${this.patternName(w.patternId)}</div></div><span class="status-pill">${w.status}</span></div>
-        <div class="grid grid-cols-2 gap-3 text-sm mb-3"><div><div class="muted">Buy zone</div><strong>${w.buyZone}</strong></div><div><div class="muted">Risk</div><strong>${w.risk}</strong></div></div>
-        <div class="flex gap-2 flex-wrap">
-          <button class="btn-primary !py-2 !px-4" onclick="App.prefillTradeFromWatchlist('${w.id}')">Tạo lệnh</button>
-          <button class="btn-secondary !py-2 !px-4" onclick="App.openPatternFromWatchlist('${w.id}')">Mở checklist</button>
-          ${compact ? '' : `<button class="btn-secondary !py-2 !px-4" onclick="App.openWatchlistModal('${w.id}')">Sửa</button><button class="btn-secondary !py-2 !px-4" onclick="App.deleteWatchlist('${w.id}')">Xóa</button>`}
+    document.getElementById(targetId).innerHTML = items.map(w => {
+      const image = this.getWatchImage(w);
+      return `
+      <div class="watch-card terminal ${compact ? 'compact' : ''}">
+        <div class="watch-head">
+          <div>
+            <div class="watch-symbol-row">
+              <div class="title">${w.symbol}</div>
+              <span class="status-pill">${w.status}</span>
+            </div>
+            <div class="muted text-sm">${this.patternName(w.patternId)}${w.sector ? ` · ${w.sector}` : ''}</div>
+          </div>
+          <div class="watch-risk-tag">${w.risk}</div>
         </div>
-      </div>`).join('') || '<div class="text-sm muted">Chưa có dữ liệu.</div>';
+
+        <div class="watch-body ${compact ? 'compact' : ''}">
+          <div class="watch-copy">
+            <div class="watch-grid-meta">
+              <div><div class="muted">Buy zone</div><strong>${w.buyZone || '—'}</strong></div>
+              <div><div class="muted">Nhóm</div><strong>${w.group === 'near' ? 'Ưu tiên' : w.group === 'watch' ? 'Theo dõi' : 'Dài hạn'}</strong></div>
+            </div>
+            <div class="watch-plan">${w.plan || 'Chưa có kế hoạch hành động.'}</div>
+            <div class="watch-actions">
+              <button class="btn-primary !py-2 !px-4" onclick="App.prefillTradeFromWatchlist('${w.id}')">Tạo lệnh</button>
+              <button class="btn-secondary !py-2 !px-4" onclick="App.openPatternFromWatchlist('${w.id}')">Mở checklist</button>
+              ${compact ? '' : `<button class="btn-secondary !py-2 !px-4" onclick="App.openWatchlistModal('${w.id}')">Thay ảnh / Sửa</button>
+              <button class="btn-secondary !py-2 !px-4" onclick="App.removeWatchlistImage('${w.id}')">Xóa ảnh</button>
+              <button class="btn-secondary !py-2 !px-4" onclick="App.deleteWatchlist('${w.id}')">Xóa</button>`}
+            </div>
+          </div>
+
+          <div class="watch-chart-panel">
+            <div class="watch-chart-label">Biểu đồ</div>
+            <div class="watch-chart-box" onclick="App.zoomImage('${image}')">
+              ${image ? `<img src="${image}" alt="${w.symbol}">` : '<div class="muted text-sm">Chưa có biểu đồ</div>'}
+            </div>
+          </div>
+        </div>
+      </div>`;
+    }).join('') || '<div class="text-sm muted">Chưa có dữ liệu.</div>';
+  },
+
+  renderDashboardReminders() {
+    this.ensureDashboardReminders();
+    const host = document.getElementById('trader-reminder-grid');
+    const adminBox = document.getElementById('dashboard-reminder-admin');
+    if (!host || !adminBox) return;
+
+    adminBox.innerHTML = this.state.isAdmin
+      ? `<button class="btn-secondary" onclick="App.openReminderModal()"><i data-lucide="image-plus"></i>Chèn ảnh</button>`
+      : '';
+
+    host.innerHTML = this.data.dashboardReminders.map((item, index) => {
+      const image = this.resolveImage(item.image || '');
+      return `
+      <article class="reminder-poster-card">
+        ${this.state.isAdmin ? `<div class="reminder-card-toolbar"><button class="mini-action-btn" onclick="App.openReminderModal('${index}')">Sửa</button><button class="mini-action-btn danger" onclick="App.deleteReminder('${index}')">Xóa</button></div>` : ''}
+        <img src="${image}" alt="${item.title || 'Poster nhắc nhở trader'}" loading="lazy" onclick="App.zoomImage('${image}')">
+        <div class="reminder-poster-caption">${item.title || 'Nhắc nhở trader'}</div>
+      </article>`;
+    }).join('');
+  },
+
+  openReminderModal(index = null) {
+    if (!this.state.isAdmin) return;
+    this.ensureDashboardReminders();
+    this.state.editingReminderIndex = index === null ? null : Number(index);
+    const item = this.state.editingReminderIndex != null ? this.data.dashboardReminders[this.state.editingReminderIndex] : { title: '', image: '' };
+    document.getElementById('reminder-title').value = item?.title || '';
+    document.getElementById('reminder-image-url').value = item?.image || '';
+    document.getElementById('reminder-image-preview').src = this.resolveImage(item?.image || '');
+    document.getElementById('reminder-image-file').value = '';
+    document.getElementById('reminder-modal-title').textContent = this.state.editingReminderIndex != null ? 'Sửa ảnh nhắc nhở' : 'Chèn ảnh nhắc nhở';
+    document.getElementById('reminder-modal').classList.remove('hidden');
+  },
+
+  closeReminderModal() {
+    document.getElementById('reminder-modal').classList.add('hidden');
+  },
+
+  clearReminderImage() {
+    document.getElementById('reminder-image-url').value = '';
+    document.getElementById('reminder-image-file').value = '';
+    document.getElementById('reminder-image-preview').src = '';
+  },
+
+  async saveReminder() {
+    if (!this.state.isAdmin) return;
+    try {
+      this.ensureDashboardReminders();
+      let image = document.getElementById('reminder-image-url').value || document.getElementById('reminder-image-preview').src || '';
+      const imageFile = document.getElementById('reminder-image-file').files?.[0];
+      if (imageFile && this.state.user && FirebaseService.canUpload) {
+        image = await FirebaseService.uploadFile(this.state.user.uid, imageFile, 'dashboard-reminders');
+      }
+      const item = {
+        id: this.state.editingReminderIndex != null ? this.data.dashboardReminders[this.state.editingReminderIndex].id : 'r' + Date.now(),
+        title: document.getElementById('reminder-title').value.trim() || 'Nhắc nhở trader',
+        image
+      };
+      if (!item.image) throw new Error('Vui lòng chọn ảnh hoặc dán URL ảnh.');
+      if (this.state.editingReminderIndex != null) this.data.dashboardReminders[this.state.editingReminderIndex] = item;
+      else this.data.dashboardReminders.unshift(item);
+      this.persist();
+      this.closeReminderModal();
+      this.renderDashboardReminders();
+      lucide.createIcons();
+    } catch (error) {
+      alert('Không lưu được ảnh nhắc nhở: ' + (error.message || error));
+    }
+  },
+
+  deleteReminder(index) {
+    if (!this.state.isAdmin) return;
+    this.ensureDashboardReminders();
+    const idx = Number(index);
+    if (Number.isNaN(idx) || !this.data.dashboardReminders[idx]) return;
+    if (!confirm('Xóa ảnh nhắc nhở này?')) return;
+    this.data.dashboardReminders.splice(idx, 1);
+    this.persist();
+    this.renderDashboardReminders();
+    lucide.createIcons();
   },
 
   renderScan() {
@@ -647,18 +1097,36 @@ const App = {
       </div>`).join('');
   },
 
-  renderMarket() {
+    renderMarket() {
     const m = this.data.market;
-    document.getElementById('market-dist-input').value = m.distDays;
-    document.getElementById('market-sentiment-input').value = m.sentiment;
-    document.getElementById('market-sectors-input').value = m.sectors;
-    document.getElementById('market-note-input').value = m.note;
-    document.getElementById('market-dist-view').textContent = m.distDays;
-    document.getElementById('market-state-view').textContent = this.marketStateLabel().title;
-    document.getElementById('market-sentiment-view').textContent = m.sentiment;
-    document.getElementById('market-sector-tags').innerHTML = this.leadingSectors().map(s => `<span class="table-chip gray">${s}</span>`).join('');
-    document.getElementById('market-guidance').textContent = `${this.marketStateLabel().title}: ${this.marketStateLabel().action} ${m.note || ''}`;
-    document.getElementById('market-action-text').textContent = this.marketStateLabel().action;
+    
+    // Safe element selection - chỉ set nếu element tồn tại
+    const els = {
+      distInput: document.getElementById('market-dist-input'),
+      sentimentInput: document.getElementById('market-sentiment-input'),
+      sectorsInput: document.getElementById('market-sectors-input'),
+      noteInput: document.getElementById('market-note-input'),
+      distView: document.getElementById('market-dist-view'),
+      stateView: document.getElementById('market-state-view'),
+      sentimentView: document.getElementById('market-sentiment-view'),
+      sectorTags: document.getElementById('market-sector-tags'),
+      guidance: document.getElementById('market-guidance'),
+      actionText: document.getElementById('market-action-text')
+    };
+
+    // Input values
+    if (els.distInput) els.distInput.value = m.distDays;
+    if (els.sentimentInput) els.sentimentInput.value = m.sentiment;
+    if (els.sectorsInput) els.sectorsInput.value = m.sectors;
+    if (els.noteInput) els.noteInput.value = m.note;
+    
+    // Display values
+    if (els.distView) els.distView.textContent = m.distDays;
+    if (els.stateView) els.stateView.textContent = this.marketStateLabel().title;
+    if (els.sentimentView) els.sentimentView.textContent = m.sentiment;
+    if (els.sectorTags) els.sectorTags.innerHTML = this.leadingSectors().map(s => `<span class="table-chip gray">${s}</span>`).join('');
+    if (els.guidance) els.guidance.textContent = `${this.marketStateLabel().title}: ${this.marketStateLabel().action} ${m.note || ''}`;
+    if (els.actionText) els.actionText.textContent = this.marketStateLabel().action;
   },
 
   saveMarket() {
@@ -794,59 +1262,14 @@ const App = {
   },
 
   updateMission() {
-    document.getElementById('mission-dist').textContent = this.data.market.distDays;
-    document.getElementById('mission-risk').textContent = this.marketStateLabel().title;
-    document.getElementById('mission-sectors').textContent = this.leadingSectorText();
-    document.getElementById('sidebar-breath-bar').style.width = `${Math.max(15, this.data.mindset.calm * 10)}%`;
-  },
-
-  buildPatternChecklist(pattern) {
-    if (!pattern) return [];
-    const conditions = Array.isArray(pattern.conditions) ? pattern.conditions.filter(Boolean) : [];
-    const triggers = Array.isArray(pattern.triggers) ? pattern.triggers.filter(Boolean) : [];
-    return [
-      ...conditions.map(item => `Điều kiện nền: ${item}`),
-      ...triggers.map(item => `Điều kiện kích hoạt: ${item}`)
-    ];
-  },
-
-  syncTradePatternSelection(force = false) {
-    const patternId = document.getElementById('trade-pattern-id')?.value || '';
-    const pattern = this.getPatternById(patternId);
-    const strategyInput = document.getElementById('trade-strategy');
-    const setupInput = document.getElementById('trade-setup');
-    const checklistInput = document.getElementById('trade-checklist');
-    const theoryUrlInput = document.getElementById('trade-theory-url');
-    const theoryPreview = document.getElementById('trade-theory-preview');
-
-    if (!pattern) {
-      if (force) {
-        if (theoryUrlInput) theoryUrlInput.value = '';
-        if (theoryPreview) theoryPreview.src = '';
-        if (checklistInput) checklistInput.value = '';
-      }
-      return;
-    }
-
-    if (strategyInput && (force || !strategyInput.value.trim())) {
-      strategyInput.value = pattern.strategy || '';
-    }
-
-    if (setupInput && (force || !setupInput.value.trim())) {
-      setupInput.value = pattern.name || '';
-    }
-
-    if (checklistInput) {
-      checklistInput.value = this.buildPatternChecklist(pattern).join('\n');
-    }
-
-    if (theoryUrlInput) {
-      theoryUrlInput.value = pattern.image || '';
-    }
-
-    if (theoryPreview) {
-      theoryPreview.src = this.resolveImage(pattern.image || '');
-    }
+    const dist = document.getElementById('mission-dist');
+    const risk = document.getElementById('mission-risk');
+    const sectors = document.getElementById('mission-sectors');
+    if (dist) dist.textContent = this.data.market.distDays;
+    if (risk) risk.textContent = this.marketStateLabel().title;
+    if (sectors) sectors.textContent = this.leadingSectorText();
+    const breathBar = document.getElementById('sidebar-breath-bar');
+    if (breathBar) breathBar.style.width = `${Math.max(15, this.data.mindset.calm * 10)}%`;
   },
 
   prefillTradeFromWatchlist(id) {
@@ -860,7 +1283,7 @@ const App = {
       strategy: p?.strategy || '',
       patternId: w.patternId || '',
       note: w.plan || '',
-      checklist: this.buildPatternChecklist(p).join('\n'),
+      checklist: (p?.triggers || []).join('\n'),
       marketPulse: this.marketStateLabel().title,
       theoryImage: p?.image || ''
     });
@@ -919,7 +1342,6 @@ const App = {
     document.getElementById('trade-actual-preview').src = this.resolveImage(src.actualImage || '');
     document.getElementById('trade-theory-file').value = '';
     document.getElementById('trade-actual-file').value = '';
-    this.syncTradePatternSelection(!id || !!prefill.patternId);
     document.getElementById('trade-modal-title').textContent = id ? 'Chỉnh sửa lệnh' : 'Tạo lệnh mới';
     document.getElementById('trade-modal').classList.remove('hidden');
   },
@@ -975,7 +1397,7 @@ const App = {
 
   openWatchlistModal(id = null) {
     this.state.editingWatchlistId = id;
-    const w = id ? this.data.watchlists.find(x => x.id === id) : { group: 'near', risk: 'Thấp' };
+    const w = id ? this.data.watchlists.find(x => x.id === id) : { group: 'near', risk: 'Thấp', image: '' };
     const set = (id, v = '') => { document.getElementById(id).value = v ?? ''; };
     set('watch-symbol', w.symbol);
     set('watch-group', w.group);
@@ -984,29 +1406,61 @@ const App = {
     set('watch-risk', w.risk);
     set('watch-status', w.status);
     set('watch-plan', w.plan);
+    set('watch-image-url', w.image || '');
+    document.getElementById('watch-image-preview').src = this.resolveImage(w.image || '');
+    document.getElementById('watch-image-file').value = '';
     document.getElementById('watchlist-modal-title').textContent = id ? 'Chỉnh sửa watchlist' : 'Thêm watchlist';
     document.getElementById('watchlist-modal').classList.remove('hidden');
   },
 
   closeWatchlistModal() { document.getElementById('watchlist-modal').classList.add('hidden'); },
 
-  saveWatchlist() {
-    const patternId = document.getElementById('watch-pattern-id').value;
-    const obj = {
-      id: this.state.editingWatchlistId || 'w' + Date.now(),
-      symbol: document.getElementById('watch-symbol').value.trim(),
-      group: document.getElementById('watch-group').value,
-      patternId,
-      buyZone: document.getElementById('watch-buy-zone').value,
-      risk: document.getElementById('watch-risk').value,
-      status: document.getElementById('watch-status').value,
-      plan: document.getElementById('watch-plan').value,
-      sector: this.data.trades.find(t => t.patternId === patternId)?.sector || ''
-    };
-    const idx = this.data.watchlists.findIndex(x => x.id === obj.id);
-    if (idx >= 0) this.data.watchlists[idx] = obj; else this.data.watchlists.unshift(obj);
+  clearWatchlistImage() {
+    document.getElementById('watch-image-url').value = '';
+    document.getElementById('watch-image-file').value = '';
+    document.getElementById('watch-image-preview').src = '';
+  },
+
+  toggleWatchlistZoom() {
+    const src = document.getElementById('watch-image-preview').src;
+    if (src) this.zoomImage(src);
+  },
+
+  async saveWatchlist() {
+    try {
+      const patternId = document.getElementById('watch-pattern-id').value;
+      let image = document.getElementById('watch-image-url').value || document.getElementById('watch-image-preview').src || '';
+      const imageFile = document.getElementById('watch-image-file').files?.[0];
+      if (imageFile) image = await FirebaseService.uploadFile(this.state.user.uid, imageFile, 'watchlists');
+
+      const obj = {
+        id: this.state.editingWatchlistId || 'w' + Date.now(),
+        symbol: document.getElementById('watch-symbol').value.trim(),
+        group: document.getElementById('watch-group').value,
+        patternId,
+        buyZone: document.getElementById('watch-buy-zone').value,
+        risk: document.getElementById('watch-risk').value,
+        status: document.getElementById('watch-status').value,
+        plan: document.getElementById('watch-plan').value,
+        image,
+        sector: this.data.trades.find(t => t.patternId === patternId)?.sector || ''
+      };
+      const idx = this.data.watchlists.findIndex(x => x.id === obj.id);
+      if (idx >= 0) this.data.watchlists[idx] = obj; else this.data.watchlists.unshift(obj);
+      this.persist();
+      this.closeWatchlistModal();
+      this.renderAll();
+    } catch (error) {
+      console.error(error);
+      alert('Không lưu được watchlist: ' + (error.message || error));
+    }
+  },
+
+  removeWatchlistImage(id) {
+    const item = this.data.watchlists.find(x => x.id === id);
+    if (!item) return;
+    item.image = '';
     this.persist();
-    this.closeWatchlistModal();
     this.renderAll();
   },
 
@@ -1092,6 +1546,8 @@ const App = {
       if (e.target.id === 'trade-theory-file') document.getElementById('trade-theory-preview').src = reader.result;
       if (e.target.id === 'trade-actual-file') document.getElementById('trade-actual-preview').src = reader.result;
       if (e.target.id === 'pattern-image-file') document.getElementById('pattern-image-preview').src = reader.result;
+      if (e.target.id === 'watch-image-file') document.getElementById('watch-image-preview').src = reader.result;
+      if (e.target.id === 'reminder-image-file') document.getElementById('reminder-image-preview').src = reader.result;
     };
     reader.readAsDataURL(file);
   }
@@ -1102,37 +1558,57 @@ const AuthUI = {
     App.state.authMode = mode;
     document.getElementById('auth-tab-login').classList.toggle('active', mode === 'login');
     document.getElementById('auth-tab-register').classList.toggle('active', mode === 'register');
-    document.getElementById('auth-name-wrap').style.display = mode === 'register' ? 'grid' : 'none';
-    App.showAuthMessage(mode === 'login' ? 'Đăng nhập để đồng bộ dữ liệu cá nhân, ảnh và nhật ký lên Firebase.' : 'Tạo tài khoản mới để mỗi người có dữ liệu riêng trên Firebase.');
+    const nameWrap = document.getElementById('auth-name-wrap');
+    if (nameWrap) nameWrap.style.display = mode === 'register' ? 'grid' : 'none';
+    const title = document.querySelector('.auth-form-title');
+    if (title) title.textContent = mode === 'register' ? 'Tạo tài khoản' : 'Đăng nhập';
+    App.showAuthMessage(
+      mode === 'login'
+        ? 'Đăng nhập để truy cập dữ liệu giao dịch của bạn.'
+        : 'Tạo tài khoản mới để bắt đầu sử dụng hệ thống giao dịch.'
+    );
   },
 
   async submit() {
-    const name = document.getElementById('auth-name').value.trim();
-    const email = document.getElementById('auth-email').value.trim();
-    const password = document.getElementById('auth-password').value.trim();
+    const name = document.getElementById('auth-name')?.value.trim() || '';
+    const email = document.getElementById('auth-email')?.value.trim() || '';
+    const password = document.getElementById('auth-password')?.value.trim() || '';
+
     try {
       if (!email || !password) throw new Error('Vui lòng nhập email và mật khẩu.');
+
+      App.setAuthBusy(true, App.state.authMode === 'register' ? 'Đang tạo tài khoản...' : 'Đang đăng nhập...');
+      App.showAuthMessage(
+        App.state.authMode === 'register'
+          ? 'Đang tạo tài khoản...'
+          : 'Đang đăng nhập...'
+      );
+
       if (App.state.authMode === 'register') {
         await App.register(name, email, password);
-        App.showAuthMessage('Tạo tài khoản thành công.');
+        App.showAuthMessage('Tạo tài khoản thành công. Đang mở hệ thống...');
       } else {
         await App.login(email, password);
-        App.showAuthMessage('Đăng nhập thành công.');
+        App.showAuthMessage('Đăng nhập thành công. Đang mở hệ thống...');
       }
+
+      await App.completeLoginFallback();
     } catch (error) {
       console.error(error);
-      App.showAuthMessage(error.message || 'Thao tác thất bại.', true);
+      App.showAuthMessage(App.authErrorMessage(error), true);
+    } finally {
+      App.setAuthBusy(false);
     }
   },
 
   async resetPassword() {
-    const email = document.getElementById('auth-email').value.trim();
+    const email = document.getElementById('auth-email')?.value.trim() || '';
     try {
       if (!email) throw new Error('Vui lòng nhập email để đặt lại mật khẩu.');
       await App.resetPassword(email);
-      App.showAuthMessage('Đã gửi email đặt lại mật khẩu.');
+      App.showAuthMessage('Đã gửi email đặt lại mật khẩu. Vui lòng kiểm tra hộp thư của bạn.');
     } catch (error) {
-      App.showAuthMessage(error.message || 'Không gửi được email đặt lại mật khẩu.', true);
+      App.showAuthMessage(App.authErrorMessage(error), true);
     }
   }
 };
